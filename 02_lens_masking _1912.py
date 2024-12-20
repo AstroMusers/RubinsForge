@@ -10,17 +10,17 @@ from lsst.geom import Box2I, Point2I, Extent2I
 import matplotlib.pyplot as plt
 import matplotlib
 import numpy as np
-import get_sim as gs
+import read_lens as gs
 import datetime as dt
 import streak as ads
 
 matplotlib.rcParams['font.size'] = 19
 
 c = dt.datetime.now()
-if not os.path.exists("/data/a.saricaoglu/lsst_pipeline/Files/" +  str(c.strftime("%m.%d"))): 
-    directoryf = "//data/a.saricaoglu/lsst_pipeline/Files/"  +  str(c.strftime("%m.%d"))
+if not os.path.exists("/data/a.saricaoglu/lsst_pipeline/Files/" +  str(c.strftime("%m.%d"))+ "/" + c.strftime('%H%M')): 
+    directoryf = "/data/a.saricaoglu/lsst_pipeline/Files/"  +  str(c.strftime("%m.%d"))+ "/" + c.strftime('%H%M')
     os.makedirs(directoryf) 
-if not os.path.exists("//data/a.saricaoglu/lsst_pipeline/Plots/" +  str(c.strftime("%m.%d")) + "/" + c.strftime('%H%M')): 
+if not os.path.exists("/data/a.saricaoglu/lsst_pipeline/Plots/" +  str(c.strftime("%m.%d")) + "/" + c.strftime('%H%M')): 
     directoryp = "/data/a.saricaoglu/lsst_pipeline/Plots/"  +  str(c.strftime("%m.%d"))+ "/" + c.strftime('%H%M')
     os.makedirs(directoryp) 
 directoryf = "/data/a.saricaoglu/lsst_pipeline/Files/"  +  str(c.strftime("%m.%d"))
@@ -203,7 +203,7 @@ for ref in butler.registry.queryDatasets('calexp', physical_filter='HSC-G'):
 
     cutouts= []
     m = 0
-    lens = gs.get_sim_image(n)
+    lens = gs.get_simulated_lens(n)
     k = 0
     p = 0
     for bbox in bboxes:
