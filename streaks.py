@@ -100,39 +100,42 @@ def create_streak(xdim, ydim, amplitude):
     return Z
 # s = create_streak(4176,2048,1)
 # print(np.max(s), np.min(s))
-def save_streak(Z):
-    # Displays Time
-    #In this part, we create and write on the .fits files.
+def save_streak(streaks):
+
     file = "/data/a.saricaoglu/lsst_pipeline/streaks.fits"
-    #PrimaryHDU will have the image data, with image related headers. Data is empty for now.
     hdu_pr = fits.PrimaryHDU()
-    #ImageHDU is where we keep the mock lens data, with lens related headers.
-    # Write to a FITS file
     hdu_pr.writeto(file, overwrite=True)
-    # Verify the file by reading it back
-    hdulist = fits.open(file, mode='append')
-    image_hdu = fits.ImageHDU(Z)
-    hdulist.append(image_hdu)
+    hdulist = fits.open(file, mode='update')
+
+    for n in range(1,len(streaks)):    
+        #In this part, we create and write on the .fits files.
+        #PrimaryHDU will have the image data, with image related headers. Data is empty for now.
+        #ImageHDU is where we keep the mock lens data, with lens related headers.
+        # Write to a FITS file
+        # Verify the file by reading it back
+        image_hdu = fits.ImageHDU(streaks[n])
+        hdulist.append(image_hdu)
+        print(f'streak {str(n)} is appended. current size; {str(len(hdulist))}')
     hdulist.close()
 
 def create_and_save(n, xdim, ydim, amplitude):
+    streaks = []
     for i in range(0,n):
         s = create_streak(xdim, ydim, amplitude)
-        save_streak(s)
+        streaks.append(s)
+    save_streak(streaks)
 
 def get_streak(xdim, ydim, amplitude):
     file = "/data/a.saricaoglu/lsst_pipeline/streaks.fits"
     if os.path.exists(file) :
         hdu = fits.open(file)
-        streak = hdu[random.randint(0, len(hdu))].data
+        streak = hdu[random.randint(1, len(hdu)-1)].data
         return streak
     else:
         print('No streak file exists, creating streaks...')
         print('Streak simulation start; ',datetime.now().strftime("%d.%m.%y, %H:%M"))
-        create_and_save(1000, xdim, ydim, amplitude)
+        create_and_save(10, xdim, ydim, amplitude)
         print('Streak simulation end; ',datetime.now().strftime("%d.%m.%y, %H:%M"))
         hdu = fits.open(file)
         streak = hdu[random.randint(0, len(hdu))].data
         return streak
-
-

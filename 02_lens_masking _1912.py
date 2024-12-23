@@ -79,27 +79,31 @@ for ref in butler.registry.queryDatasets('calexp', physical_filter='HSC-G'):
 
     # Define the offsets for the top 6 boxes relative to the center
     top_offsets = [
-        (-1000, 1000),  # Top-left
-        (0, 1000),     # Top-center
-        (1000, 1000),   # Top-right
-        (-1000, 0),    # Middle-left
-        (0, 0),       # Center (for reference, can exclude if not needed)
-        (1000, 0),     # Middle-right
-        (-800, 800),  # Top-left
+
+        (-800, 1400),  # Top-left
+        (0, 1600),     # Top-center
+        (800, 1400),   # Top-right
+        (-800, -1400),  # Top-left
+        (0, -1600),     # Top-center
+        (800, -1400),   # Top-right
+        (-600, 1100),  # Top-left
+        (0, 1200),     # Top-center
+        (600, 1100),   # Top-right
+        (-600, -1100),  # Top-left
+        (0, -1200),     # Top-center
+        (600, -1100),   # Top-right
+        (-400, 700),  # Top-left
         (0, 800),     # Top-center
-        (800, 800),   # Top-right
-        (-800, 0),    # Middle-left
-        (800, 0),     # Middle-right
-        (-600, 600),  # Top-left
-        (0, 600),     # Top-center
-        (600, 600),   # Top-right
-        (-600, 0),    # Middle-left
-        (600, 0), 
-        (-400, 400),  # Top-left
-        (0, 400),     # Top-center
-        (400, 400),   # Top-right
-        (-400, 0),    # Middle-left
-        (400, 0),     # Middle-right
+        (400, 700),   # Top-right
+        (-400, -700),  # Top-left
+        (0, -800),     # Top-center
+        (400, -700),   # Top-right
+        (-200, 200),  # Top-left
+        (0, 300),     # Top-center
+        (200, 200),   # Top-right
+        (-200, -200),  # Top-left
+        (0, -300),     # Top-center
+        (200, -200),   # Top-right
     ]
 
     # Define the center of the full image (assumed to be at pixel (1500, 1500))
@@ -125,7 +129,7 @@ for ref in butler.registry.queryDatasets('calexp', physical_filter='HSC-G'):
 
     print('image min max', np.min(calexp_image.maskedImage.image.array), np.max(calexp_image.maskedImage.image.array))
 
-    streak = ads.create_streak(4176,2048,10e6)
+    streak = ads.get_streak(4176,2048,10e6)
     streaky_image = calexp_image.maskedImage.image.array + streak
     calexp_image.maskedImage.image.array[:,:] = streaky_image
     streaky_mask = calexp_image.maskedImage.mask.array + streak
@@ -194,7 +198,7 @@ for ref in butler.registry.queryDatasets('calexp', physical_filter='HSC-G'):
     plt.savefig(directoryp +  "/" + c.strftime('%H%M') + "/preProcessed_lens_sim3" + str(n)+ ".png",bbox_inches='tight')
 
 
-    f2, ax2 = plt.subplots(2, 4, figsize=(24, 10), sharex=False, sharey=False)
+    f2, ax2 = plt.subplots(4, 6, figsize=(20, 13), sharex=True, sharey=True)
     # Define the center (in pixel coordinates) and size of the cutout
     print(type(streak), np.shape(streak))
     print(type(image_array), np.shape(image_array))
@@ -203,9 +207,9 @@ for ref in butler.registry.queryDatasets('calexp', physical_filter='HSC-G'):
 
     cutouts= []
     m = 0
-    lens = gs.get_simulated_lens(n)
+    lens, noisy_lens = gs.get_simulated_lens(n)
     k = 0
-    p = 0
+    p = 1
     for bbox in bboxes:
 
         cutout = calexp_image.Factory(calexp_image, bbox)
@@ -216,21 +220,34 @@ for ref in butler.registry.queryDatasets('calexp', physical_filter='HSC-G'):
         cutout.maskedImage.mask.array[:,:] = lensed_mask 
         im1 = ax2[k][m].imshow(cutout.maskedImage.image.array, cmap='viridis', origin='lower')
         ax2[k][m].set_title(f'Cutout {p}')
-        plt.colorbar(im1, label='Pixel Value ', ax=ax2[k][m], shrink=0.9)
+        #plt.colorbar(im1, label='Pixel Value ', ax=ax2[k][m], shrink=0.9)
         m = m + 1
         p = p + 1
-        if m == 3:
+        if p == 7:
             k = 1
             m = 0
+        if p == 13:
+            k = 2
+            m = 0
+        if p == 19:
+            k = 3
+            m = 0
         
-    ax2[0][3].axis('off')
-    im0 = ax2[1][3].imshow(lens, cmap='viridis', origin='lower')
-    ax2[1][3].set_title('Injected Lens')
-    plt.colorbar(im0, label='Pixel Value ', ax=ax2[1][3],  shrink=0.9)
-    f2.suptitle('Cutouts from the Full Image')
-
+    #ax2[0][3].axis('off')
+    #f2.suptitle('Cutouts from the Full Image')
+    f2.colorbar(im1, label='Pixel Value ', ax=ax2.ravel().tolist(),  shrink=1)
     f2.savefig(directoryp +  "/" + c.strftime('%H%M') + "/lens_cutouts" + str(n)+ ".png" , bbox_inches='tight')
 
+    f3, ax3 = plt.subplots(1, 2, figsize=(11, 4), sharex=True, sharey=True,gridspec_kw={'width_ratios': [1, 1]})  
+    im0 = ax3[0].imshow(lens, cmap='viridis', origin='lower')
+    im1 = ax3[1].imshow(noisy_lens, cmap='viridis', origin='lower')
+    f3.suptitle('Injected Lens')
+    f3.colorbar(im1, label='Pixel Value ', ax=ax3.ravel().tolist(),  shrink=0.9)
+    f3.savefig(directoryp +  "/" + c.strftime('%H%M') + "/lens_injected" + str(n)+ ".png" , bbox_inches='tight')
+    k = 1
+    for cut in cutouts:
+        cut.writeFits(directoryf +  "/" + c.strftime('%H%M') + "/lens_cutouts" + str(n) + "_cut_" + str(k))
+        k = k+1
 
     # if np.sum(mask_results.mask) != 0:
     #     f, ax = plt.subplots(1, 2, figsize=(25, 8), sharex=False, sharey=False)

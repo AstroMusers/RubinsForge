@@ -2,7 +2,7 @@
 import numpy as np
 from astropy.io import fits
 
-name = "/data/a.saricaoglu/lenstronomy/lenstronomy-data/mock_lenses/fits11.28.fits"
+name = "/data/a.saricaoglu/lenstronomy/lenstronomy-data/mock_lenses/12.21/1623_simulation.fits"
 
 def get_simulated_lens(n):
     with fits.open(name) as hdul:
@@ -10,10 +10,10 @@ def get_simulated_lens(n):
         m = n
         while True:
             try:
-                image = hdul[2*m-1].data
+                image = hdul[m].data
                 #image = np.log10(hdul[3*m-1].data)
-                print('lens min max: ', np.min(hdul[2*m-1].data), np.max(hdul[2*m-1].data))
-                masked_image = hdul[2*m].data
+                print('lens min max: ', np.min(hdul[m].data), np.max(hdul[m].data))
+                noisy_image = hdul[m+1].data
             except:
                 m = m + 1
                 print('m :', m)
@@ -21,5 +21,5 @@ def get_simulated_lens(n):
             break
 
         
-        return image
+        return image, noisy_image
     hdul.close()
