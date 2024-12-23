@@ -3,7 +3,8 @@ from lsst.daf.butler import Butler
 import os
 from lsst.meas.algorithms.maskStreaks import MaskStreaksTask
 from lsst.meas.algorithms.maskStreaks import MaskStreaksTask
-from lsst.afw.geom import Polygon
+import lsst.afw.geom as afwGeom
+from lsst.pipe.tasks.calexpCutout import CalexpCutoutTask
 from lsst.obs.base import FitsRawFormatterBase
 from lsst.afw.fits import Fits
 from lsst.geom import Box2I, Point2I, Extent2I
@@ -12,7 +13,8 @@ import matplotlib
 import numpy as np
 import read_lens as gs
 import datetime as dt
-import streak as ads
+import streaks as ads
+import cutouts as ct
 
 matplotlib.rcParams['font.size'] = 19
 
@@ -43,7 +45,7 @@ butler = Butler('SMALL_HSC', collections=collection, instrument='HSC')
 config = MaskStreaksTask.ConfigClass()
 #config.clusterMinimumDeviation = 5              #def. = 2  -Allowed deviation (in pixels) from a straight line for a detected line",
 #config.clusterMinimumSize = 500                #def. = 50 -Allowed deviation (in pixels) from a straight line for a detected line",
-config.nSigma = 2                        #def. = 2  -Number of sigmas from center of kernel to include in voting procedure
+config.nSigma = 2                      #def. = 2  -Number of sigmas from center of kernel to include in voting procedure
 config.invSigma = 0.1             #def. = 10.**-1 -"Inverse of the Moffat sigma parameter (in units of pixels) describing the profile of the streak",
 #config.dChi2Tolerance = 0.5      
 mask_streaks_task = MaskStreaksTask(config=config)
@@ -74,7 +76,7 @@ for ref in butler.registry.queryDatasets('calexp', physical_filter='HSC-G'):
     center_y = height // 2
     center = Point2I(center_x, center_y)
 
-    cutouts = []
+    cutouts_factory= []
     cutout_size = 100  # Each cutout is 100x100 pixels
 
     # Define the offsets for the top 6 boxes relative to the center
@@ -179,6 +181,7 @@ for ref in butler.registry.queryDatasets('calexp', physical_filter='HSC-G'):
     ax[1][2].set_ylabel('Y Pixel')
     
     j = 1    # Overlay the bounding boxes
+
     for bbox in bboxes:
         ax[1][2].add_patch(plt.Rectangle((bbox.getMinX(), bbox.getMinY()),
                                         bbox.getWidth(), bbox.getHeight(),
@@ -204,8 +207,11 @@ for ref in butler.registry.queryDatasets('calexp', physical_filter='HSC-G'):
     print(type(image_array), np.shape(image_array))
 
 
+    #cutouts_factory= ct.extract_cutouts(calexp_image, top_offsets,100)
+    cutouts_method= ct.extract_cutouts_with_task(n, calexp_image, top_offsets, cutout_size).getMaskedImages()
 
-    cutouts= []
+    print('cutout len ',len(cutouts_method))
+    cutouts_factory= []
     m = 0
     lens, noisy_lens = gs.get_simulated_lens(n)
     k = 0
@@ -213,7 +219,7 @@ for ref in butler.registry.queryDatasets('calexp', physical_filter='HSC-G'):
     for bbox in bboxes:
 
         cutout = calexp_image.Factory(calexp_image, bbox)
-        cutouts.append(cutout)
+        cutouts_factory.append(cutout)
         lensed_image = cutout.maskedImage.image.array + lens
         cutout.maskedImage.image.array[:,:] = lensed_image
         lensed_mask = cutout.maskedImage.mask.array + lens
@@ -232,11 +238,45 @@ for ref in butler.registry.queryDatasets('calexp', physical_filter='HSC-G'):
         if p == 19:
             k = 3
             m = 0
-        
     #ax2[0][3].axis('off')
     #f2.suptitle('Cutouts from the Full Image')
     f2.colorbar(im1, label='Pixel Value ', ax=ax2.ravel().tolist(),  shrink=1)
     f2.savefig(directoryp +  "/" + c.strftime('%H%M') + "/lens_cutouts" + str(n)+ ".png" , bbox_inches='tight')
+
+    f4, ax4 = plt.subplots(4, 6, figsize=(20, 13), sharex=True, sharey=True)
+    m = 0
+    k = 0
+    p = 1
+    for cutout in cutouts_method:        
+        lensed_image = cutout.image.array + lens
+        cutout.image.array[:,:] = lensed_image
+        lensed_mask = cutout.mask.array + lens
+        cutout.mask.array[:,:] = lensed_mask 
+        mask_plane_dict = cutout.mask.getMaskPlaneDict()
+        streak_bit = 1 << mask_plane_dict['STREAK']
+        mask2 = (cutout.mask.array & streak_bit) != 0
+        cutout.image.array[mask2] = np.nan
+        if np.sum(mask2) != 0:
+            print('cutout streak detected in cutout no ', p)
+        im1 = ax4[k][m].imshow(cutout.image.array, cmap='viridis', origin='lower')
+        ax4[k][m].set_title(f'Cutout {p}')
+        #plt.colorbar(im1, label='Pixel Value ', ax=ax2[k][m], shrink=0.9)
+        cutout.writeFits(directoryf +  "/" + c.strftime('%H%M') + "/lens_cutouts" + str(n) + "_cut_" + str(k))
+        m = m + 1
+        p = p + 1
+        if p == 7:
+            k = 1
+            m = 0
+        if p == 13:
+            k = 2
+            m = 0
+        if p == 19:
+            k = 3
+            m = 0
+
+    f4.colorbar(im1, label='Pixel Value ', ax=ax4.ravel().tolist(),  shrink=1)
+    f4.savefig(directoryp +  "/" + c.strftime('%H%M') + "/lens_cutouts_masked" + str(n)+ ".png" , bbox_inches='tight')      
+
 
     f3, ax3 = plt.subplots(1, 2, figsize=(11, 4), sharex=True, sharey=True,gridspec_kw={'width_ratios': [1, 1]})  
     im0 = ax3[0].imshow(lens, cmap='viridis', origin='lower')
@@ -244,10 +284,7 @@ for ref in butler.registry.queryDatasets('calexp', physical_filter='HSC-G'):
     f3.suptitle('Injected Lens')
     f3.colorbar(im1, label='Pixel Value ', ax=ax3.ravel().tolist(),  shrink=0.9)
     f3.savefig(directoryp +  "/" + c.strftime('%H%M') + "/lens_injected" + str(n)+ ".png" , bbox_inches='tight')
-    k = 1
-    for cut in cutouts:
-        cut.writeFits(directoryf +  "/" + c.strftime('%H%M') + "/lens_cutouts" + str(n) + "_cut_" + str(k))
-        k = k+1
+
 
     # if np.sum(mask_results.mask) != 0:
     #     f, ax = plt.subplots(1, 2, figsize=(25, 8), sharex=False, sharey=False)

@@ -25,7 +25,7 @@ from datetime import datetime
 # %matplotlib inline
 import lenstronomy
 from astropy.io import fits
-from streak import create_streak
+from streaks import create_streak
 
 c = datetime.now()
 # Displays Time
