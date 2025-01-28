@@ -154,15 +154,15 @@ logging.info(f'Script {script_name} started')
 
 ts = load.timescale()
 year = 2025
-day_month_i = [23, 1]
-day_month_f = [24, 1]
+day_month_i = [26, 1]
+day_month_f = [27, 1]
 zone = timezone('Chile/Continental')
 local = timezone('Etc/GMT-6')
 Nsats = 6412
 treshold = 15 # tresold for contamination
 obs_start = ts.utc(year,day_month_i[1], day_month_i[0],3,0,0)
 obs_end = ts.utc(year,day_month_f[1], day_month_f[0],3,0,0)
-starlinks = load.tle_file('/data/a.saricaoglu/Lumos-Sat/Files/Weekly_Starlink_Archive/starlinks_01.22.txt')
+starlinks = load.tle_file('https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=tle')
 eph = load('de421.bsp')
 earth = eph['earth']
 sun = eph['sun']
@@ -242,16 +242,23 @@ t00 = obs_start
 hdu = fits.open(fit_filename, mode='update')
 while t00 < obs_end:
     d = d + 1
-
+    filtered_targets = []
     L.append(f'\n Day #{d}')
     fig, ax = plt.subplots()
     for target in targets:
         difference_t = target - rubin_obs
         topocentric_t = difference_t.at(t00)
-        ra_t, dec_t, distance_t = topocentric_t.radec()
+        alt_t, az_t, height = topocentric_t.altaz()
+        
+        if alt_t.degrees > 30:
+            ra_t, dec_t, distance_t = topocentric_t.radec()
         # target_i = Star(Angle(degrees=ra_i), Angle(degrees=dec_i))
         # Plot the target's RA and Dec
-        ax.scatter(ra_t.hours, dec_t.degrees, marker="*", c='b', label='Target')
+            ax.scatter(ra_t.hours, dec_t.degrees, marker="*", c='b', label='Target')
+            filtered_targets.append(target)
+
+    print(f'filtered target number: {len(filtered_targets)}')
+    
     sat_ra= []
     sat_dec= []
     sat_dist = []
@@ -338,7 +345,7 @@ while t00 < obs_end:
                         continue       
                     skips.append(skip)      
                     separation = []
-                    for target in targets:    
+                    for target in filtered_targets:    
                         contamination = target_check(target, rubin_obs, ti,topocentric, separation, treshold)
                         if contamination:
                             contamination_counter = contamination_counter + 1
@@ -351,7 +358,7 @@ while t00 < obs_end:
                         daily_separation.append(np.min(separation))
                     # print('Check point 2 : ',time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time())))
                     total_trail_ti.append(ti)
-                    ti = ti + dt.timedelta(minutes=0.1)
+                    ti = ti + dt.timedelta(minutes=0.01)
                 f = len(sat_ra)
 
                     #print('Check point 3 : ',time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time())))

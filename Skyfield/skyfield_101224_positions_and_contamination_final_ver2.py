@@ -154,8 +154,8 @@ logging.info(f'Script {script_name} started')
 
 ts = load.timescale()
 year = 2025
-day_month_i = [24, 1]
-day_month_f = [27, 1]
+day_month_i = [27, 1]
+day_month_f = [30, 1]
 zone = timezone('Chile/Continental')
 local = timezone('Etc/GMT-6')
 Nsats = 6412
