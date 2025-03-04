@@ -1,7 +1,7 @@
 # %%
-# Parent version: skyfield_satellite_positions_B_021124.py version
-# Runs with daily increments, samples every 0.1m of the satellites and checks masterfıts in the sky.
-# Plots altitude, azimuth and distance. ONLY positions no target contamination check.
+# Parent version: ver4
+# Runs with daily increments, samples every 0.01 minutes of the satellites and checks masterfıts in the sky.
+# Target population is random 10k 
 import os
 import sys
 import logging
@@ -167,7 +167,6 @@ eph = load('de421.bsp')
 earth = eph['earth']
 sun = eph['sun']
 rubin_obs = wgs84.latlon(-30.244633,  -70.749417)
-rubinobs_astr = earth +  wgs84.latlon(30.244633*S,  70.749417*W, elevation_m = 2647)
 # rubin_obs_astr = earth +  wgs84.latlon(30.244633*S,  70.749417*W, elevation_m = 2647)
 
 # %%
@@ -188,18 +187,18 @@ hdu_pr.header['OBSSTART'] = str(obs_start.astimezone(zone))
 hdu_pr.header['OBSEND'] = str(obs_end.astimezone(zone))
 hdu_pr.header['NSATS'] = Nsats
 hdu_pr.header['DAYS'] = int(obs_end - obs_start)
-hdu_pr.header['TARGETS'] = '/data/a.saricaoglu/lumos-sat/master.fits'
+hdu_pr.header['TARGETS'] = '/data/a.saricaoglu/Lumos-Sat/Files/01.28/radec_mock_targets_list_10000.fits'
 hdu_pr.header['TRESHOLD'] = treshold
 hdu_pr.writeto(fit_filename, overwrite=True)
 with fits.open(fit_filename, mode='update') as hdu:
     print(hdu[0].header)
 
 targets = []
-with fits.open('/data/a.saricaoglu/lumos-sat/master.fits') as hdul:
+with fits.open('/data/a.saricaoglu/Lumos-Sat/Files/01.28/radec_mock_targets_list_10000.fits') as hdul:
     hdul.info()
     data = hdul[1].data
-    ra_i = data['RAJ2000_deg']
-    dec_i = data['DEJ2000_deg']
+    ra_i = data['RA']
+    dec_i = data['Dec']
     # print(ra_i, dec_i)
     # for i in range(0,len(data)):
     #     target_i = Star(Angle(degrees=ra_i[i]),Angle(degrees=dec_i[i]))
@@ -221,7 +220,8 @@ status_names = ['Rise','Culminate', 'Set']
 t00 = obs_start
 d = 0
 eclipse = 0
-
+rubinobs = wgs84.latlon(-30.244633,  -70.749417)
+rubinobs_astr = earth +  wgs84.latlon(30.244633*S,  70.749417*W, elevation_m = 2647)
 total_trail = []
 total_valid = []
 total_event = []
@@ -300,8 +300,8 @@ while t00 < obs_end:
         previous_e = e
 
 
-    print(f'\n Day starts at:  {day_start.astimezone(zone)}')
-    print(f'\n Day ends at: {day_end.astimezone(zone)}')
+    print(f'Day starts at:  {day_start.astimezone(zone)}')
+    print(f'Day ends at: {day_end.astimezone(zone)}')
     sat_num = 0
     for starlink in starlinks[:Nsats+1]:
         
@@ -344,7 +344,7 @@ while t00 < obs_end:
                         skip = skip + 1
                         print(f'Step at ti in event {trailcan_counter} for satellite {starlink.name} is taking too long, stopping. / higher than altitude limit of <2000m')
                         continue       
-                    skips = skips + (skip // 10)      
+                    skips = skips + (skip // 10)       
                     separation = []
                     for target in filtered_targets:    
                         contamination = target_check(target, rubin_obs, ti,topocentric, separation, treshold)
@@ -607,11 +607,11 @@ aa2 = total_average_mag # Another set of random data for comparison
 bb1 = total_peak_intensity
 bb2 = total_average_intensity
 
-np.savetxt(directoryf +  "/" + str(c.strftime('%H%M')) +"/totalpeakmag_logfile_for_" + str(day_month_i[0]) + str(day_month_i[1]) + "_" + str(year) + ".txt", aa1)
-np.savetxt(directoryf  +  "/" + str(c.strftime('%H%M')) +"/totalaveragemag_logfile_for_" + str(day_month_i[0]) + str(day_month_i[1]) + "_" + str(year) + ".txt", aa2)
+np.savetxt(directoryf +  "/" + str(c.strftime('%H%M')) +"/totalpeakmag_logfile_for_" + str(day_month_i[0]) + str(day_month_i[1]) + "_" + str(year) + "_" + c.strftime('%H%M') + ".txt", aa1)
+np.savetxt(directoryf  +  "/" + str(c.strftime('%H%M')) +"/totalaveragemag_logfile_for_" + str(day_month_i[0]) + str(day_month_i[1]) + "_" + str(year) + "_" + c.strftime('%H%M') + ".txt", aa2)
 
-np.savetxt(directoryf  +  "/" + str(c.strftime('%H%M')) +"/totalpeakintensity_logfile_for_" + str(day_month_i[0]) + str(day_month_i[1]) + "_" + str(year) + ".txt", bb1)                                                
-np.savetxt(directoryf  +  "/" + str(c.strftime('%H%M')) +"/totalaverageintensity_logfile_for_" + str(day_month_i[0]) + str(day_month_i[1]) + "_" + str(year) +".txt", bb2)
+np.savetxt(directoryf  +  "/" + str(c.strftime('%H%M')) +"/totalpeakintensity_logfile_for_" + str(day_month_i[0]) + str(day_month_i[1]) + "_" + str(year) + "_" + c.strftime('%H%M') + ".txt", bb1)                                                
+np.savetxt(directoryf  +  "/" + str(c.strftime('%H%M')) +"/totalaverageintensity_logfile_for_" + str(day_month_i[0]) + str(day_month_i[1]) + "_" + str(year) + "_" + c.strftime('%H%M') + ".txt", bb2)
 
 plt.figure(figsize=(14, 6))
 

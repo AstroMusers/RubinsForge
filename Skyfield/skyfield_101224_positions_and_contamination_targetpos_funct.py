@@ -44,12 +44,13 @@ def ra_formatter(x, pos):
 def trail_event(starlink, rubin_obs, ti, zone, sat_ra, sat_dec, sat_dist, sat_t, sat_al, sat_az, sat_hght):
     start = time.time()
     max_duration = 60
-    status = False
-    while (((time.time() - start) % 60) < max_duration) & (status == False):
+
+    if ((time.time() - start) % 60) < max_duration:
+
         difference = starlink - rubin_obs
         topocentric = difference.at(ti)
         satra, satdec, distance = topocentric.radec() # ICRF ("J2000")
-        if (distance.to(u.km).value < 2000):
+        if distance.to(u.m).value > 2000:
             sat_ra.append(satra.hours)
             sat_dec.append(satdec.degrees)
             sat_dist.append(distance.to(u.m).value)
@@ -60,17 +61,16 @@ def trail_event(starlink, rubin_obs, ti, zone, sat_ra, sat_dec, sat_dist, sat_t,
 
             diff = ti.astimezone(zone) - midnight.astimezone(zone)
             sat_t.append(diff.total_seconds() / 3600)
-            status = True           
-            return topocentric         
-        else:
-            status = True
-            return None
+            #print(f'trail event done in {((time.time() - start) % 60)} seconds')
+            return topocentric
+           
+    else:
+        print(f"Task {starlink.name} is taking {time.time()-start} stopping.")
         
-def target_check(target, rubin_obs, ti, topocentric, separation, treshold):
+def target_check(target, rubin_obs, ti, topocentric, separation):
     start = time.time()
     max_duration = 60
-    status = False
-    while (((time.time() - start) % 60) < max_duration) & (status == False):
+    if ((time.time() - start) % 60) < max_duration:
         difference_t = target - rubin_obs
         topocentric_t = difference_t.at(ti)
         difference_angle = topocentric.separation_from(topocentric_t)
@@ -79,7 +79,7 @@ def target_check(target, rubin_obs, ti, topocentric, separation, treshold):
         # #contamination_mask = (difference_angle.arcseconds() <= 10)
         separation.append(difference_angle.arcseconds())
         # print('Check point 2 : ',time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time())))
-        if (difference_angle.arcseconds() <= treshold):
+        if (difference_angle.arcseconds() <= 10):
             ra_t, dec_t, distance_t = topocentric_t.radec()
             print(f'Contaminated targets ra/dec : {ra_t} , {dec_t}')
             L.append(f'Contaminated targets ra/dec : {ra_t} , {dec_t}')
@@ -87,20 +87,19 @@ def target_check(target, rubin_obs, ti, topocentric, separation, treshold):
             print(f'Contamination difference angle  : {difference_angle.arcseconds()}')
             L.append(f'Contamination difference angle  : {difference_angle.arcseconds()}')
             #print(f'target check done{((time.time() - start) % 60)} seconds')
-            status = True
             return True
         else:
-            status = True
+            #print(f'target check done{((time.time() - start) % 60)} seconds')
             return False
         
-  
+    else:         
+        return None   
 
 
 def brightness_calculation(rubinobs_astr, sun, s, f, sat_al, sat_az, sat_hght):  
-    start = time.time()
     max_duration = 60
-    status = False
-    while (((time.time() - start) % 60) < max_duration) & (status == False):
+    start = time.time()
+    if ((time.time() - start) % 60) < max_duration:
         astro = rubinobs_astr.at(ti).observe(sun)
         app = astro.apparent()
         sunalt, sunaz, sundistance = app.altaz()
@@ -120,7 +119,6 @@ def brightness_calculation(rubinobs_astr, sun, s, f, sat_al, sat_az, sat_hght):
         # Convert intensity to AB Magnitude
         ab_magnitudes = lumos.conversions.intensity_to_ab_mag(intensities)
         #print(f'task brightness done in {((time.time() - start) % 60)} seconds')
-        status = True
         return intensities, ab_magnitudes
     else:
         return None
@@ -154,12 +152,12 @@ logging.info(f'Script {script_name} started')
 
 ts = load.timescale()
 year = 2025
-day_month_i = [27, 1]
-day_month_f = [30, 1]
+day_month_i = [24, 1]
+day_month_f = [26, 1]
 zone = timezone('Chile/Continental')
 local = timezone('Etc/GMT-6')
 Nsats = 6412
-treshold = 15 # tresold for contamination
+#num_sources = 10000
 obs_start = ts.utc(year,day_month_i[1], day_month_i[0],3,0,0)
 obs_end = ts.utc(year,day_month_f[1], day_month_f[0],3,0,0)
 starlinks = load.tle_file('https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=tle')
@@ -167,7 +165,6 @@ eph = load('de421.bsp')
 earth = eph['earth']
 sun = eph['sun']
 rubin_obs = wgs84.latlon(-30.244633,  -70.749417)
-rubinobs_astr = earth +  wgs84.latlon(30.244633*S,  70.749417*W, elevation_m = 2647)
 # rubin_obs_astr = earth +  wgs84.latlon(30.244633*S,  70.749417*W, elevation_m = 2647)
 
 # %%
@@ -181,7 +178,7 @@ if not os.path.exists("/data/a.saricaoglu/Lumos-Sat/Plots/" +  str(c.strftime("%
 directoryf = "/data/a.saricaoglu/Lumos-Sat/Files/"  +  str(c.strftime("%m.%d"))
 directoryp = "/data/a.saricaoglu/Lumos-Sat/Plots/"  +  str(c.strftime("%m.%d"))
 
-fit_filename = directoryf + f"/{c.strftime('%H%M')}/satellite_data.fits"
+fit_filename = directoryf + f"/{c.strftime('%H%M')}_satellite_data.fits"
 hdu_pr = fits.PrimaryHDU()
 hdu_pr.header['RUNDATE'] = c.strftime('%Y-%m-%d')
 hdu_pr.header['OBSSTART'] = str(obs_start.astimezone(zone))
@@ -189,9 +186,9 @@ hdu_pr.header['OBSEND'] = str(obs_end.astimezone(zone))
 hdu_pr.header['NSATS'] = Nsats
 hdu_pr.header['DAYS'] = int(obs_end - obs_start)
 hdu_pr.header['TARGETS'] = '/data/a.saricaoglu/lumos-sat/master.fits'
-hdu_pr.header['TRESHOLD'] = treshold
 hdu_pr.writeto(fit_filename, overwrite=True)
 with fits.open(fit_filename, mode='update') as hdu:
+    hdu.info()
     print(hdu[0].header)
 
 targets = []
@@ -200,7 +197,7 @@ with fits.open('/data/a.saricaoglu/lumos-sat/master.fits') as hdul:
     data = hdul[1].data
     ra_i = data['RAJ2000_deg']
     dec_i = data['DEJ2000_deg']
-    # print(ra_i, dec_i)
+    print(ra_i, dec_i)
     # for i in range(0,len(data)):
     #     target_i = Star(Angle(degrees=ra_i[i]),Angle(degrees=dec_i[i]))
     #     targets.append(target_i)
@@ -215,13 +212,14 @@ L.append(description)
 start_time = time.time()
 
 
-# if Nsats != len(starlinks):
-#     random.shuffle(starlinks)
+if Nsats != len(starlinks):
+    random.shuffle(starlinks)
 status_names = ['Rise','Culminate', 'Set']
 t00 = obs_start
 d = 0
 eclipse = 0
-
+rubinobs = wgs84.latlon(-30.244633,  -70.749417)
+rubinobs_astr = earth +  wgs84.latlon(30.244633*S,  70.749417*W, elevation_m = 2647)
 total_trail = []
 total_valid = []
 total_event = []
@@ -242,23 +240,16 @@ t00 = obs_start
 hdu = fits.open(fit_filename, mode='update')
 while t00 < obs_end:
     d = d + 1
-    filtered_targets = []
+
     L.append(f'\n Day #{d}')
     fig, ax = plt.subplots()
     for target in targets:
         difference_t = target - rubin_obs
         topocentric_t = difference_t.at(t00)
-        alt_t, az_t, height = topocentric_t.altaz()
-        
-        if alt_t.degrees > 30:
-            ra_t, dec_t, distance_t = topocentric_t.radec()
+        ra_t, dec_t, distance_t = topocentric_t.radec()
         # target_i = Star(Angle(degrees=ra_i), Angle(degrees=dec_i))
         # Plot the target's RA and Dec
-            ax.scatter(ra_t.hours, dec_t.degrees, marker="*", c='b', label='Target')
-            filtered_targets.append(target)
-
-    print(f'filtered target number: {len(filtered_targets)}')
-    
+        ax.scatter(ra_t.hours, dec_t.degrees, marker="*", c='b', label='Target')
     sat_ra= []
     sat_dec= []
     sat_dist = []
@@ -275,7 +266,7 @@ while t00 < obs_end:
     event_counter = 0
     invalid_starlink_counter = 0
     contamination_counter = 0
-    skips = 0
+
     t0 = t00
     t1 = t0 + dt.timedelta(days=1)
     midnight = t0 + dt.timedelta(hours=3)
@@ -316,12 +307,11 @@ while t00 < obs_end:
         for t, e in zip(timee, event):
             if e == 0:
                 rising_time.append(t)
-                event_counter = event_counter + 1
             if e == 1:
                 peak_time.append(t)
             if e == 2:
                 setting_time.append(t)
-        
+        event_counter = event_counter + len(event)
         #print('Check point 1 : ',time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time())))
         for rise_t, peak_t, set_t in zip(rising_time,peak_time, setting_time):
             sunlit = starlink.at(rise_t).is_sunlit(eph) | starlink.at(set_t).is_sunlit(eph) | starlink.at(peak_t).is_sunlit(eph)
@@ -336,18 +326,16 @@ while t00 < obs_end:
                 print(f'Rising time: {rise_t.astimezone(zone)}, setting time: {set_t.astimezone(zone)}')
 
                 s = len(sat_ra)
-                skip = 0
-                while (ti < set_t) & ((ti < day_start) | (ti > day_end)) & starlink.at(ti).is_sunlit(eph) & (skip < 10):
-                    
+                while (ti < set_t) & ((ti < day_start) | (ti > day_end)) & starlink.at(ti).is_sunlit(eph):
                     topocentric = trail_event(starlink, rubin_obs, ti, zone, sat_ra, sat_dec, sat_dist, sat_t, sat_al, sat_az, sat_hght)   
                     if topocentric is None:
-                        skip = skip + 1
-                        print(f'Step at ti in event {trailcan_counter} for satellite {starlink.name} is taking too long, stopping. / higher than altitude limit of <2000m')
-                        continue       
-                    skips = skips + (skip // 10)      
+                        print(f'Event {trailcan_counter} for satellite {starlink.name} is taking too long, stopping. / outside altitude range of 2000m')
+                        trailcan_counter = trailcan_counter - 1
+                        continue               
+                    #L.append(f'\n sat RA : {satra}, sat DEC : {satdec}, distance :  {distance.to(u.km)}, T-midnight : {diff.total_seconds() / 3600}')
                     separation = []
-                    for target in filtered_targets:    
-                        contamination = target_check(target, rubin_obs, ti,topocentric, separation, treshold)
+                    for target in targets:    
+                        contamination = target_check(target, rubin_obs, ti,topocentric, separation)
                         if contamination:
                             contamination_counter = contamination_counter + 1
                         elif contamination is None:
@@ -359,7 +347,7 @@ while t00 < obs_end:
                         daily_separation.append(np.min(separation))
                     # print('Check point 2 : ',time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time())))
                     total_trail_ti.append(ti)
-                    ti = ti + dt.timedelta(minutes=0.01)
+                    ti = ti + dt.timedelta(minutes=0.1)
                 f = len(sat_ra)
 
                     #print('Check point 3 : ',time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time())))
@@ -403,14 +391,14 @@ while t00 < obs_end:
         valid_starlink_counter = valid_starlink_counter + 1
 
 
-    print(f'Total skips for day {d} : {skips}')
+    
     total_trail.append(trailcan_counter)
     total_valid.append(valid_starlink_counter)
     total_invalid.append(invalid_starlink_counter)
     total_contamination.append(contamination_counter)
     total_event.append(event_counter)
 
-    position_hdu = fits.BinTableHDU(Table(data=[sat_t, sat_ra, sat_dec, sat_dist, sat_az, sat_al, sat_hght], names=['Time', 'RA', 'Dec', 'Distance', 'Azimuth', 'Altitude', 'Height']))
+    position_hdu = fits.BinTableHDU(Table(data=[sat_t, sat_ra, sat_dec, sat_dist], names=['Time', 'RA', 'Dec', 'Distance']))
     position_hdu.header['DAY'] = str(d)
     position_hdu.header['VALSAT'] = valid_starlink_counter
     position_hdu.header['INVSAT'] = invalid_starlink_counter
@@ -607,11 +595,11 @@ aa2 = total_average_mag # Another set of random data for comparison
 bb1 = total_peak_intensity
 bb2 = total_average_intensity
 
-np.savetxt(directoryf +  "/" + str(c.strftime('%H%M')) +"/totalpeakmag_logfile_for_" + str(day_month_i[0]) + str(day_month_i[1]) + "_" + str(year) + ".txt", aa1)
-np.savetxt(directoryf  +  "/" + str(c.strftime('%H%M')) +"/totalaveragemag_logfile_for_" + str(day_month_i[0]) + str(day_month_i[1]) + "_" + str(year) + ".txt", aa2)
+np.savetxt(directoryf +  "/" + str(c.strftime('%H%M')) +"/totalpeakmag_logfile_for_" + str(day_month_i[0]) + str(day_month_i[1]) + "_" + str(year) + "_" + c.strftime('%H%M') + ".txt", aa1)
+np.savetxt(directoryf  +  "/" + str(c.strftime('%H%M')) +"/totalaveragemag_logfile_for_" + str(day_month_i[0]) + str(day_month_i[1]) + "_" + str(year) + "_" + c.strftime('%H%M') + ".txt", aa2)
 
-np.savetxt(directoryf  +  "/" + str(c.strftime('%H%M')) +"/totalpeakintensity_logfile_for_" + str(day_month_i[0]) + str(day_month_i[1]) + "_" + str(year) + ".txt", bb1)                                                
-np.savetxt(directoryf  +  "/" + str(c.strftime('%H%M')) +"/totalaverageintensity_logfile_for_" + str(day_month_i[0]) + str(day_month_i[1]) + "_" + str(year) +".txt", bb2)
+np.savetxt(directoryf  +  "/" + str(c.strftime('%H%M')) +"/totalpeakintensity_logfile_for_" + str(day_month_i[0]) + str(day_month_i[1]) + "_" + str(year) + "_" + c.strftime('%H%M') + ".txt", bb1)                                                
+np.savetxt(directoryf  +  "/" + str(c.strftime('%H%M')) +"/totalaverageintensity_logfile_for_" + str(day_month_i[0]) + str(day_month_i[1]) + "_" + str(year) + "_" + c.strftime('%H%M') + ".txt", bb2)
 
 plt.figure(figsize=(14, 6))
 
@@ -646,9 +634,8 @@ plt.figure(figsize=(14, 6))
 
 
 # Plot the bars for a1 and a2
-cc = np.arange(0,500,10)
-plt.hist(a5,bins=cc, alpha=1, color='red', edgecolor='black')
-plt.xlim(left=0,right=500)
+plt.hist(a5,bins=50, alpha=1, color='red', edgecolor='black')
+plt.xlim(left=0,right=200)
 plt.axvline(x=15,  linestyle='--')
 
 # plt.hist(a2, bins=10, label='Average Magnitudes', color='salmon', edgecolor='black')

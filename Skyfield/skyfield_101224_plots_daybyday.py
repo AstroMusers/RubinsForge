@@ -53,13 +53,16 @@ earth = eph['earth']
 sun = eph['sun']
 rubin_obs = wgs84.latlon(-30.244633,  -70.749417)
 sat_ra = []
-sat_dec = []
+sat_dec = [] 
 sat_dist = []
 sat_time = []
 sat_az = []
 sat_alt = []
 sat_height = []
-with fits.open('/data/a.saricaoglu/Lumos-Sat/Files/01.25/2212_satellite_data.fits') as hdul:
+
+read_dir = '/data/a.saricaoglu/Lumos-Sat/Files/01.27/1947'
+
+with fits.open(read_dir + '/1947_satellite_data.fits') as hdul:
     hdul.info()
     days = hdul[0].header['DAYS']
     obs_start = hdul[0].header['OBSSTART']
@@ -125,13 +128,13 @@ t00 = obs_start
 # Create a plot for for targets and Starlink positions for each day in Ra, Dec
 for i in range(0,days):
     fig, ax = plt.subplots()
-    for target in targets:
-        # Calculate the target's topocentric position relative to the observing location
-        difference_t = target - rubin_obs
-        topocentric_t = difference_t.at(t00)     
-        # Convert to Alt-Az
-        ra_t, dec_t, distance_t = topocentric_t.radec()
-        ax.scatter(ra_t.hours, dec_t.degrees, marker="*", c='b')
+    # for target in targets:
+    #     # Calculate the target's topocentric position relative to the observing location
+    #     difference_t = target - rubin_obs
+    #     topocentric_t = difference_t.at(t00)     
+    #     # Convert to Alt-Az
+    #     ra_t, dec_t, distance_t = topocentric_t.radec()
+    #     ax.scatter(ra_t.hours, dec_t.degrees, marker="*", c='b')
 
     scatter = ax.scatter(sat_ra[i], sat_dec[i], c = sat_dist[i], marker='.', cmap = 'viridis')  
 
@@ -209,7 +212,7 @@ for i in range(0,days):
     # sat_height_above = [height in sat_height_all for height, alt in zip(sat_height_all, sat_alt_all) if alt.degrees > 30]
     scatter = ax.scatter(sat_ra[i], sat_dec[i], marker='o', c = sat_dist[i], cmap = 'viridis')  
 
-    plt.title(f'Starlink positions for {t00.astimezone(zone)}')
+    plt.title(f'Starlink positions for {t00.astimezone(zone)} in RA-Dec')
     plt.grid()
     ax.xaxis.set_major_formatter(FuncFormatter(ra_formatter))
     ax.set_xlabel('RA (hh:mm:ss)')
@@ -246,7 +249,7 @@ for i in range(0,days):
     # sat_height_above = [height in sat_height_all for height, alt in zip(sat_height_all, sat_alt_all) if alt.degrees > 30]
     scatter = ax.scatter(sat_ra[i], sat_dec[i], marker='o', c = sat_dist[i], cmap = 'viridis')  
 
-    plt.title(f'Starlink positions for {t00.astimezone(zone)}')
+    plt.title(f'Starlink positions for {t00.astimezone(zone)} in RA-Dec')
     plt.grid()
     ax.xaxis.set_major_formatter(FuncFormatter(ra_formatter))
     ax.set_xlabel('RA (hh:mm:ss)')
@@ -255,7 +258,7 @@ for i in range(0,days):
     # Dec is already in degrees, so just label it
     ax.set_ylabel('Dec (degrees)')    
     plt.tight_layout()
-    plt.savefig(directoryp +  "/" + c.strftime('%H%M') + "/Satellite_positions_for_" +str(t00.astimezone(zone)) + str(i) + "_C2.png")
+    plt.savefig(directoryp +  "/" + c.strftime('%H%M') + "/Satellite_positions_for_" +str(t00.astimezone(zone)) + str(i) + "_D.png")
     plt.close()
     t00 = t00 + timedelta(days=1)
 t00 = obs_start
@@ -292,58 +295,57 @@ for i in range(0,days):
     # Dec is already in degrees, so just label it
     ax.set_ylabel('Altitude (degrees)')    
     plt.tight_layout()
-    plt.savefig(directoryp +  "/" + c.strftime('%H%M') + "/Satellite_positions_for_" +str(t00.astimezone(zone)) +str(i) + "_D.png")
+    plt.savefig(directoryp +  "/" + c.strftime('%H%M') + "/Satellite_positions_for_" +str(t00.astimezone(zone)) +str(i) + "_E.png")
     plt.close()
     t00 = t00 + timedelta(days=1)
 t00 = obs_start
 
 # Create a plot for for targets and Starlink positions for each day in Ra, Dec for targets above 30° altitude
-for i in range(0,6):
-    fig, ax = plt.subplots()
-    above_30 = 0
-    below_30 = 0
-    for target in targets:
-        # Calculate the target's topocentric position relative to the observing location
-        difference_t = target - rubin_obs
-        topocentric_t = difference_t.at(t00)     
-        # Convert to Alt-Az
-        altitude, azimuth, distance = topocentric_t.altaz()
+# for i in range(0,6):
+#     fig, ax = plt.subplots()
+#     above_30 = 0
+#     below_30 = 0
+#     for target in targets:
+#         # Calculate the target's topocentric position relative to the observing location
+#         difference_t = target - rubin_obs
+#         topocentric_t = difference_t.at(t00)     
+#         # Convert to Alt-Az
+#         altitude, azimuth, distance = topocentric_t.altaz()
 
-        # Filter targets above 30° altitude
-        if altitude.degrees > 30:
-            # Convert RA and Dec for plotting
-            above_30 = above_30 + 1
-            ra_t, dec_t, distance_t = topocentric_t.radec()
+#         # Filter targets above 30° altitude
+#         if altitude.degrees > 30:
+#             # Convert RA and Dec for plotting
+#             above_30 = above_30 + 1
+#             ra_t, dec_t, distance_t = topocentric_t.radec()
             
-            # Plot the target's RA and Dec
-            ax.scatter(ra_t.hours, dec_t.degrees, marker="*", c='b', label=f'Target above 30: {target}')
-        else:
-            below_30 = below_30 + 1
-            ra_t, dec_t, distance_t = topocentric_t.radec()
-            ax.scatter(ra_t.hours, dec_t.degrees, marker="*", c='r', label=f'Target below 30: {target}')
-    print(f'above 30: {above_30}')
-    print(f'below 30: {below_30}')
-    # sat_ra_above = [ra in sat_ra_all for ra, alt in zip(sat_ra_all, sat_alt_all) if alt > 30]
-    # sat_dec_above = [dec in sat_dec_all for dec, alt in zip(sat_dec_all, sat_alt_all) if alt > 30]
-    # sat_height_above = [height in sat_height_all for height, alt in zip(sat_height_all, sat_alt_all) if alt.degrees > 30]
+#             # Plot the target's RA and Dec
+#             ax.scatter(ra_t.hours, dec_t.degrees, marker="*", c='b', label=f'Target above 30: {target}')
+#         else:
+#             below_30 = below_30 + 1
+#             ra_t, dec_t, distance_t = topocentric_t.radec()
+#             ax.scatter(ra_t.hours, dec_t.degrees, marker="*", c='r', label=f'Target below 30: {target}')
+#     print(f'above 30: {above_30}')
+#     print(f'below 30: {below_30}')
+#     # sat_ra_above = [ra in sat_ra_all for ra, alt in zip(sat_ra_all, sat_alt_all) if alt > 30]
+#     # sat_dec_above = [dec in sat_dec_all for dec, alt in zip(sat_dec_all, sat_alt_all) if alt > 30]
+#     # sat_height_above = [height in sat_height_all for height, alt in zip(sat_height_all, sat_alt_all) if alt.degrees > 30]
 
-    plt.title(f'target positions for {t00.astimezone(zone)}')
-    plt.grid()
-    ax.xaxis.set_major_formatter(FuncFormatter(ra_formatter))
-    ax.set_xlabel('RA (hh:mm:ss)')
+#     plt.title(f'Target positions for {t00.astimezone(zone)} in RA-Dec')
+#     plt.grid()
+#     ax.xaxis.set_major_formatter(FuncFormatter(ra_formatter))
+#     ax.set_xlabel('RA (hh:mm:ss)')
 
-    # Dec is already in degrees, so just label it
-    ax.set_ylabel('Dec (degrees)')    
-    plt.tight_layout()
-    plt.savefig(directoryp +  "/" + c.strftime('%H%M') + "/Satellite_positions_for_" +str(t00.astimezone(zone)) + str(i) + "_F.png")
-    plt.close()
-    t00 = t00 + timedelta(hours=2)
+#     # Dec is already in degrees, so just label it
+#     ax.set_ylabel('Dec (degrees)')    
+#     plt.tight_layout()
+#     plt.savefig(directoryp +  "/" + c.strftime('%H%M') + "/Satellite_positions_for_" +str(t00.astimezone(zone)) + str(i) + "_F.png")
+#     plt.close()
+#     t00 = t00 + timedelta(hours=2)
 t00 = obs_start
 # Create an array of dates for each day in September (1 to 30)
 dates = [i for i in range(1,days+1)]
 
 
-read_dir = '/data/a.saricaoglu/Lumos-Sat/Files/01.25/2212'
 
 with open(read_dir +"/totaltrail_logfile_for_" + str(utc_dt.day) + str(utc_dt.month) + "_" + str(utc_dt.year) + ".txt") as file:
     total_trail = [float(line.strip()) for line in file.readlines()]
@@ -376,7 +378,7 @@ with open(read_dir +"/totalaverageintensity_logfile_for_" + str(utc_dt.day) + st
 a1 = total_trail  # Random data for demonstration
 a2 = total_valid # Another set of random data for comparison
 a3 = total_contamination
-a4 = total_event
+a4 = [int(ev / 3) for ev in total_event]
 a5 = total_closest_approach
 
 # Set positions for each set of bars
@@ -386,7 +388,7 @@ plt.figure(figsize=(20, 6))
 
 # Plot the bars for a1 and a2
 plt.bar(dates, a4, alpha=1.0, label='Events', color='green', edgecolor='black')
-plt.bar(dates, a2, alpha=1.0, label='Validated Starlinks', color='salmon', edgecolor='black')
+# plt.bar(dates, a2, alpha=1.0, label='Validated Starlinks', color='salmon', edgecolor='black')
 plt.bar(dates, a1,  alpha=1.0,label='Trail Candidates', color='skyblue', edgecolor='black')
 plt.bar(dates, a3, alpha=1.0, label='Strong Lens Crossing', color='red', edgecolor='black')
 
@@ -395,7 +397,7 @@ plt.xlabel('Days')
 plt.ylabel('Numbers')
 plt.yscale('log')
 # Title
-plt.title(f'Starlink Events between {obs_start.astimezone(zone)} - {obs_end.astimezone(zone)} at beginning of the month for {Nsats} Satellites per day' )
+plt.title(f'Starlink Events between {obs_start.astimezone(zone)} - {obs_end.astimezone(zone)} for {Nsats} Satellites per day' )
 # Add a legend
 plt.legend()
 # Show the plot
@@ -483,7 +485,7 @@ bb = np.arange(0,10e-11,1e-11)
 plt.hist(bb1,bins=bb, label='Peak Intensities', alpha=0.7, color='blue', edgecolor='black')
 plt.hist(bb2,bins=bb, label='Average Intensities', alpha=0.5, color='red', edgecolor='black')
 
-plt.xlabel('Intensity [W/m^2/sr]')
+plt.xlabel('Intensity [W/m^2]')
 plt.ylabel('Number of Trail Candidate Events')
 
 plt.legend()
@@ -495,7 +497,7 @@ plt.figure(figsize=(14, 6))
 
 
 # Plot the bars for a1 and a2
-cc = np.arange(0,500,10)
+cc = np.arange(0,300,10)
 plt.hist(a5,bins=cc, alpha=1, color='red', edgecolor='black')
 plt.xlim(left=0,right=500)
 plt.axvline(x=15,  linestyle='--')

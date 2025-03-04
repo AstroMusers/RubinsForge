@@ -71,14 +71,11 @@ def target_check(target, rubin_obs, ti, topocentric, separation, treshold):
     max_duration = 60
     status = False
     while (((time.time() - start) % 60) < max_duration) & (status == False):
-        difference_t = target - rubin_obs
-        topocentric_t = difference_t.at(ti)
+        difference = target - rubin_obs
+        topocentric_t = difference.at(ti)
         difference_angle = topocentric.separation_from(topocentric_t)
-        #manual = np.sqrt((ra_t.arcseconds()-satra.arcseconds())**2 + (dec_t.arcseconds()-satdec.arcseconds())**2)
-        #print('difference angle; ', difference_angle.arcseconds(),' manual calc: ', manual)
-        # #contamination_mask = (difference_angle.arcseconds() <= 10)
         separation.append(difference_angle.arcseconds())
-        # print('Check point 2 : ',time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time())))
+
         if (difference_angle.arcseconds() <= treshold):
             ra_t, dec_t, distance_t = topocentric_t.radec()
             print(f'Contaminated targets ra/dec : {ra_t} , {dec_t}')
@@ -160,6 +157,7 @@ zone = timezone('Chile/Continental')
 local = timezone('Etc/GMT-6')
 Nsats = 6412
 treshold = 15 # tresold for contamination
+deltatime = dt.timedelta(minutes=0.01)
 obs_start = ts.utc(year,day_month_i[1], day_month_i[0],3,0,0)
 obs_end = ts.utc(year,day_month_f[1], day_month_f[0],3,0,0)
 starlinks = load.tle_file('https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=tle')
@@ -190,6 +188,7 @@ hdu_pr.header['NSATS'] = Nsats
 hdu_pr.header['DAYS'] = int(obs_end - obs_start)
 hdu_pr.header['TARGETS'] = '/data/a.saricaoglu/lumos-sat/master.fits'
 hdu_pr.header['TRESHOLD'] = treshold
+hdu_pr.header['DTI'] = str(deltatime)
 hdu_pr.writeto(fit_filename, overwrite=True)
 with fits.open(fit_filename, mode='update') as hdu:
     print(hdu[0].header)
@@ -201,12 +200,12 @@ with fits.open('/data/a.saricaoglu/lumos-sat/master.fits') as hdul:
     ra_i = data['RAJ2000_deg']
     dec_i = data['DEJ2000_deg']
     # print(ra_i, dec_i)
-    # for i in range(0,len(data)):
-    #     target_i = Star(Angle(degrees=ra_i[i]),Angle(degrees=dec_i[i]))
-    #     targets.append(target_i)
     for i in range(0,len(data)):
-        target_i = sf.positionlib.position_of_radec(ra_i[i], dec_i[i], t=obs_start, center=399)
-        targets.append(wgs84.subpoint(target_i))
+        target_i = Star(Angle(degrees=ra_i[i]),Angle(degrees=dec_i[i]))
+        targets.append(target_i)
+    # for i in range(0,len(data)):
+    #     target_i = sf.positionlib.position_of_radec(ra_i[i], dec_i[i], t=obs_start, center=399)
+    #     targets.append(wgs84.subpoint(target_i))
 hdul.close()
 file = open(directoryf + "/satellite_pos_logfile_for_" + str(day_month_i[0]) + str(day_month_i[1]) + "_" + str(year) + "_" + c.strftime('%H%M') + ".txt", 'w')
 L = []
@@ -242,23 +241,11 @@ t00 = obs_start
 hdu = fits.open(fit_filename, mode='update')
 while t00 < obs_end:
     d = d + 1
-    filtered_targets = []
+    
     L.append(f'\n Day #{d}')
     fig, ax = plt.subplots()
-    for target in targets:
-        difference_t = target - rubin_obs
-        topocentric_t = difference_t.at(t00)
-        alt_t, az_t, height = topocentric_t.altaz()
-        
-        if alt_t.degrees > 30:
-            ra_t, dec_t, distance_t = topocentric_t.radec()
-        # target_i = Star(Angle(degrees=ra_i), Angle(degrees=dec_i))
-        # Plot the target's RA and Dec
-            ax.scatter(ra_t.hours, dec_t.degrees, marker="*", c='b', label='Target')
-            filtered_targets.append(target)
 
-    print(f'filtered target number: {len(filtered_targets)}')
-    
+    tar_plot= True
     sat_ra= []
     sat_dec= []
     sat_dist = []
@@ -270,6 +257,7 @@ while t00 < obs_end:
     sun_az = []
     sun_hght = []
     daily_separation = []
+    filtered_targets = []
     trailcan_counter = 0
     valid_starlink_counter = 0
     event_counter = 0
@@ -336,30 +324,58 @@ while t00 < obs_end:
                 print(f'Rising time: {rise_t.astimezone(zone)}, setting time: {set_t.astimezone(zone)}')
 
                 s = len(sat_ra)
+                filt_targets = []
                 skip = 0
+                for target in targets:
+                    topocentric_t = rubinobs_astr.at(ti).observe(target)
+                    appr = topocentric_t.apparent()
+                    alt_t, az_t, height = appr.altaz()
+                        
+                    if alt_t.degrees > 30:
+                        ra, dec, dist = appr.radec()
+                        target_i = sf.positionlib.position_of_radec(ra.hours, dec.degrees, t=ti, center=399)
+                        filt_targets.append(wgs84.subpoint(target_i))
+
+                filtered_targets.append(len(filt_targets))
+
+                if tar_plot:
+
+                    for target in filt_targets:
+                        diff = target - rubin_obs
+                        topo = diff.at(ti)
+                        ra_t, dec_t, h_t = topo.radec()
+                        # Plot the target's RA and Dec
+                        ax.scatter(ra_t.hours, dec_t.degrees, marker="*", c='b', label=f'Target above 30')   
+                        tar_plot = False                    
+
                 while (ti < set_t) & ((ti < day_start) | (ti > day_end)) & starlink.at(ti).is_sunlit(eph) & (skip < 10):
-                    
+
+                    separation = []
                     topocentric = trail_event(starlink, rubin_obs, ti, zone, sat_ra, sat_dec, sat_dist, sat_t, sat_al, sat_az, sat_hght)   
+                    
                     if topocentric is None:
                         skip = skip + 1
                         print(f'Step at ti in event {trailcan_counter} for satellite {starlink.name} is taking too long, stopping. / higher than altitude limit of <2000m')
                         continue       
-                    skips = skips + (skip // 10)      
-                    separation = []
-                    for target in filtered_targets:    
-                        contamination = target_check(target, rubin_obs, ti,topocentric, separation, treshold)
+
+                    skips = skips + (skip // 10)    
+
+                    for target in filt_targets:
+
+                        contamination = target_check(target, rubin_obs, ti, topocentric, separation, treshold)
+
                         if contamination:
                             contamination_counter = contamination_counter + 1
                         elif contamination is None:
                             print(f'Event {trailcan_counter} for satellite {starlink.name} is taking too long, stopping.')
-                
 
                     if len(separation) != 0 :      
-                        total_closest_approach.append(np.min(separation))
+                        separation = np.sort(separation)
+                        total_closest_approach.append(separation[:100])
                         daily_separation.append(np.min(separation))
                     # print('Check point 2 : ',time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time())))
-                    total_trail_ti.append(ti)
-                    ti = ti + dt.timedelta(minutes=0.01)
+                    total_trail_ti.append(ti) 
+                    ti = ti + deltatime
                 f = len(sat_ra)
 
                     #print('Check point 3 : ',time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time())))
@@ -395,15 +411,16 @@ while t00 < obs_end:
                     total_peak_intensity.append(peak_intensity)
                     total_average_intensity.append(average_intensity)   
                     total_average_mag.append(average_ab_mag)
-                    total_trail_ti.append(ti)
                     #print('Check point 3 : ',time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time())))
             else:
                 print(f'No trail candidate transit rising time {rise_t.astimezone(zone)}, setting time {set_t.astimezone(zone)}')
-                          
+
+                            
         valid_starlink_counter = valid_starlink_counter + 1
 
 
     print(f'Total skips for day {d} : {skips}')
+    print(f'Average target number in the sky for the day {d} : {np.mean(filtered_targets)}')
     total_trail.append(trailcan_counter)
     total_valid.append(valid_starlink_counter)
     total_invalid.append(invalid_starlink_counter)
@@ -472,7 +489,7 @@ total_valid = np.array([total_valid])
 total_invalid = np.array([total_invalid])
 total_contamination = np.array([total_contamination])
 total_event = np.array([total_event])
-total_closest_approach = np.array([total_closest_approach])
+total_closest_approach = np.array([x for y in total_closest_approach for x in y ])
 total_trail_ti = np.array([total_trail_ti])
 L.append(f'\n Total trail candidate events: { np.sum(total_trail)}')
 L.append(f'\n Validated Starlink observations :{  np.sum(total_valid)}')
@@ -506,7 +523,7 @@ a1 = total_trail[0]  # Random data for demonstration
 a2 = total_valid[0] # Another set of random data for comparison
 a3 = total_contamination[0]
 a4 = total_event[0]
-a5 = total_closest_approach[0]
+a5 = total_closest_approach
 a6 = total_trail_ti[0]
 
 if not os.path.exists(directoryf +  "/" + str(c.strftime('%H%M'))): 

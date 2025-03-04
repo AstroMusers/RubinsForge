@@ -52,6 +52,7 @@ eph = load('de421.bsp')
 earth = eph['earth']
 sun = eph['sun']
 rubin_obs = wgs84.latlon(-30.244633,  -70.749417)
+rubinobs_astr = earth +  wgs84.latlon(30.244633*S,  70.749417*W, elevation_m = 2647)
 
 targets_dir = '/data/a.saricaoglu/lumos-sat/master.fits'
 
@@ -72,12 +73,12 @@ with fits.open(targets_dir) as hdul:
     data = hdul[1].data
     ra_i = data['RAJ2000_deg']
     dec_i = data['DEJ2000_deg']
-    # for i in range(0,len(data)):
-    #     target_i = Star(Angle(degrees=ra_i[i]),Angle(degrees=dec_i[i]))
-    #     targets.append(target_i)
     for i in range(0,len(data)):
-        target_i = sf.positionlib.position_of_radec(ra_i[i], dec_i[i], t=obs_start, center=399)
-        targets.append(wgs84.subpoint(target_i))
+        target_i = Star(Angle(degrees=ra_i[i]),Angle(degrees=dec_i[i]))
+        targets.append(target_i)
+    # for i in range(0,len(data)):
+    #     target_i = sf.positionlib.position_of_radec(ra_i[i], dec_i[i], t=obs_start, center=399)
+    #     targets.append(wgs84.subpoint(target_i))
 
 
 # Create a plot for for targets and Starlink positions for each day in Ra, Dec for targets above 30° altitude
@@ -86,24 +87,32 @@ for i in range(0,8):
     fig, ax = plt.subplots()
     above_30 = 0
     below_30 = 0
+    filt_targets = []
     for target in targets:
         # Calculate the target's topocentric position relative to the observing location
-        difference_t = target - rubin_obs
-        topocentric_t = difference_t.at(t00)     
-        # Convert to Alt-Az
-        altitude, azimuth, distance = topocentric_t.altaz()
-
+        topocentric_t = rubinobs_astr.at(t00).observe(target) 
         # Filter targets above 30° altitude
-        if altitude.degrees > 30:
-            # Convert RA and Dec for plotting
-            above_30 = above_30 + 1
-            ra_t, dec_t, distance_t = topocentric_t.radec()
+        appr = topocentric_t.apparent()
+        alt_t, az_t, height = appr.altaz()
             
+        if alt_t.degrees > 30:
+            above_30 = above_30 + 1
+            ra, dec, dist = appr.radec()
+            target_i = sf.positionlib.position_of_radec(ra.hours, dec.degrees, t=t00, center=399)
+            target_i  = wgs84.subpoint(target_i)
+            diff = target_i - rubin_obs
+            topo = diff.at(t00)
+            ra_t, dec_t, h_t = topo.radec()
             # Plot the target's RA and Dec
             ax.scatter(ra_t.hours, dec_t.degrees, marker="*", c='b', label=f'Target above 30: {target}')
         else:
             below_30 = below_30 + 1
-            ra_t, dec_t, distance_t = topocentric_t.radec()
+            ra, dec, dist = appr.radec()
+            target_i = sf.positionlib.position_of_radec(ra.hours, dec.degrees, t=t00, center=399)
+            target_i  = wgs84.subpoint(target_i)
+            diff = target_i - rubin_obs
+            topo = diff.at(t00)
+            ra_t, dec_t, h_t = topo.radec()
             ax.scatter(ra_t.hours, dec_t.degrees, marker="*", c='r', label=f'Target below 30: {target}')
     print(f'above 30: {above_30}')
     print(f'below 30: {below_30}')
@@ -130,23 +139,34 @@ for i in range(0,8):
     below_30 = 0
     for target in targets:
         # Calculate the target's topocentric position relative to the observing location
-        difference_t = target - rubin_obs
-        topocentric_t = difference_t.at(t00)     
-        # Convert to Alt-Az
-        altitude, azimuth, distance = topocentric_t.altaz()
+        topocentric_t = rubinobs_astr.at(t00).observe(target) 
+        # Filter targets above 30° altitude
+        appr = topocentric_t.apparent()
+        alt_t, az_t, height = appr.altaz()
 
         # Filter targets above 30° altitude
-        if altitude.degrees > 30:
+        if alt_t.degrees > 30:
             # Convert RA and Dec for plotting
             above_30 = above_30 + 1
-            dec_t, ra_t, distance_t = topocentric_t.altaz()
+            ra, dec, dist = appr.radec()
+            target_i = sf.positionlib.position_of_radec(ra.hours, dec.degrees, t=t00, center=399)
+            target_i  = wgs84.subpoint(target_i)
+            diff = target_i - rubin_obs
+            topo = diff.at(t00)
+            az_t, alt_t, h_t = topo.altaz()
             
             # Plot the target's RA and Dec
-            ax.scatter(ra_t.degrees, dec_t.degrees, marker="*", c='b', label=f'Target above 30: {target}')
+            ax.scatter(alt_t.degrees, az_t.degrees, marker="*", c='b', label=f'Target above 30: {target}')
         else:
             below_30 = below_30 + 1
-            dec_t, ra_t, distance_t = topocentric_t.altaz()
-            ax.scatter(ra_t.degrees, dec_t.degrees, marker="*", c='r', label=f'Target below 30: {target}')
+            ra, dec, dist = appr.radec()
+            target_i = sf.positionlib.position_of_radec(ra.hours, dec.degrees, t=t00, center=399)
+            target_i  = wgs84.subpoint(target_i)
+            diff = target_i - rubin_obs
+            topo = diff.at(t00)
+            az_t, alt_t, h_t = topo.altaz()
+            
+            ax.scatter(alt_t.degrees, az_t.degrees, marker="*", c='r', label=f'Target below 30: {target}')
     print(f'above 30: {above_30}')
     print(f'below 30: {below_30}')
     # sat_ra_above = [ra in sat_ra_all for ra, alt in zip(sat_ra_all, sat_alt_all) if alt > 30]
@@ -176,22 +196,25 @@ for i in range(0,8):
 
     for target in targets:
         # Calculate the target's topocentric position relative to the observing location
-        difference_t = target - rubin_obs
-        topocentric_t = difference_t.at(t00)     
-
-        # Convert to Alt-Az
-        altitude, azimuth, distance = topocentric_t.altaz()
-
+        topocentric_t = rubinobs_astr.at(t00).observe(target) 
+        # Filter targets above 30° altitude
+        appr = topocentric_t.apparent()
+        alt_t, az_t, height = appr.altaz()
         # Convert to Alt-A
 
         # Filter targets above 30° altitude
-        if (altitude.degrees > 30):
+        if (alt_t.degrees > 30):
             # Convert RA and Dec for plotting
             above_30 = above_30 + 1
 
-            ra_t, dec_t, distance_t = topocentric_t.radec()
+            ra, dec, dist = appr.radec()
+            target_i = sf.positionlib.position_of_radec(ra.hours, dec.degrees, t=t00, center=399)
+            target_i  = wgs84.subpoint(target_i)
+            diff = target_i - rubin_obs
+            topo = diff.at(t00)
+            ra_t, dec_t, h_t = topo.radec()
             
-            topocentric_pre = difference_t.at(t00 + timestep)
+            topocentric_pre =topocentric_t = rubinobs_astr.at(t00 - timestep).observe(target).apparent()
             ra_tpre, dec_tpre, distance_tpre = topocentric_pre.radec()
 
             separation.append(topocentric_t.separation_from(topocentric_pre).arcseconds())
