@@ -4,6 +4,6 @@ import datetime as dt
 
 c = dt.datetime.now()
 date = str(c.strftime("%m.%d"))
-dir = "/data/a.saricaoglu/Lumos-Sat/Files/Weekly_Starlink_Archive/"
+dir = "/data/a.saricaoglu/lumos-sat/RubinsForge/TLE_data/"
 name = dir + 'starlinks_'+ date + '.txt'
 starlinks = load.download('https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=tle', filename=name)
