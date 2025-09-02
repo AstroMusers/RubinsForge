@@ -1,0 +1,27 @@
+# LenSim-specific gitignore
+
+# Lenstronomy outputs
+output.csv
+lens_models/
+simulated_images/
+model_fits/
+
+# Plot outputs
+plots/
+*.png
+*.pdf
+*.eps
+
+# Log files
+*.log
+
+# Data files
+*.fits
+*.dat
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# Cache
+cache/
+__pycache__/

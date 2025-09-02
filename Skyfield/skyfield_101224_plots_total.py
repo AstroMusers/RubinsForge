@@ -12,12 +12,12 @@ from pytz import timezone
 from skyfield import almanac
 from skyfield.framelib import galactic_frame
 from skyfield.data import hipparcos
-from brightness import calculate_brightness
-import lumos.calculator
-import random
-import starlink_sat
-import lumos.plot
-import lumos.brdf.library
+# from brightness import calculate_brightness
+# import lumos.calculator
+# import random
+# import starlink_sat
+# import lumos.plot
+# import lumos.brdf.library
 from astropy.wcs import WCS
 import matplotlib.pyplot as plt
 import matplotlib
@@ -27,8 +27,8 @@ from datetime import datetime, timedelta
 from matplotlib import colors as mcolors
 from astropy.visualization import quantity_support, time_support
 quantity_support()  
-matplotlib.rcParams['figure.figsize'] = (16,12)
-matplotlib.rcParams['font.size'] = 17
+# matplotlib.rcParams['figure.figsize'] = (16,12)
+# matplotlib.rcParams['font.size'] = 17
 
 def ra_formatter(x, pos):
         hours = int(x)
@@ -195,7 +195,7 @@ for dir in read_dirs:
     # Set positions for each set of bars
     dates = np.array(dates) # Shift dates slightly right
     # Create the plot
-    plt.figure(figsize=(20, 6))
+    plt.figure(figsize=(7, 3.5))
 
     # Plot the bars for a1 and a2
     plt.bar(dates, a4, alpha=1.0, label='Events', color='green', edgecolor='black')
@@ -275,7 +275,7 @@ for dir in read_dirs:
     bb1 = [x for y in total_peak_intensity for x in y] 
     bb2 = [x for y in total_ave_intensity for x in y] 
 
-    plt.figure(figsize=(14, 6))
+    plt.figure(figsize=(7, 3.5))
 
     aa = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]
     # Plot the bars for a1 and a2
@@ -304,7 +304,7 @@ for dir in read_dirs:
     plt.savefig(directoryp +  "/" + c.strftime('%H%M') + "/Intensity_histogram_for_" + str(obs_start.astimezone(zone)) +  f"{dir.split('/')[-2]}.png ")
 
 
-    plt.figure(figsize=(14, 6))
+    plt.figure(figsize=(7, 3.5))
 
 
     # Plot the bars for a1 and a2

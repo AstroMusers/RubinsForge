@@ -1,0 +1,231 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# Conda
+.conda/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Astronomical data files
+*.fits
+*.fit
+*.fts
+*.bsp
+*.dat
+*.h5
+*.hdf5
+
+# Large data directories
+data/
+output/
+outputs/
+results/
+plots/
+Plots/
+Files/
+logs/
+temp/
+tmp/
+
+# LSST Science Pipelines
+lsstsw/stack/
+lsstsw/build/
+lsstsw/var/
+lsstsw/sources/
+lsstsw/distserver/
+lsstsw/lfs/
+lsstsw/my_butler/
+lsstsw/miniconda/
+lsstsw/versiondb/
+
+# Rubin simulation data
+rubin_sim_data/
+**/rubin_sim_data/
+
+# Skyfield specific
+*.tle
+*.txt
+ephemeris/
+cache/
+
+# Lenstronomy outputs
+lens_models/
+image_simulations/
+
+# OpSim databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Log files
+*.log
+*.out
+*.err
+script*.log
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# System files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Compressed files (unless specifically needed)
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip
+
+# LaTeX
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.synctex.gz
+*.toc
+
+# R
+.Rhistory
+.Rapp.history
+.RData
+.Ruserdata
+
+# MATLAB
+*.asv
+*.m~
+
+# Specific to this project
+# TLE data files (comment out if you want to track them)
+Skyfield/tle_data/*.txt
+Skyfield/tle_data/*.tle
+
+# Lumos output directories
+Lumos-Sat/
+**/Lumos-Sat/
+
+# Large output files
+*.csv
+*.fits
+output.csv
+
+# Configuration files with sensitive data
+config.ini
+secrets.yaml
+.env.local
+.env.production
+
+# Backup files
+*~
+*.orig
+*.rej
+
+# Package build artifacts
+.eggs/
+*.egg-info/
+
+# Documentation builds
+docs/_build/
+docs/build/
+site/
+
+# Profiling data
+.prof
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/

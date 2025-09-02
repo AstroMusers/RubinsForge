@@ -1,0 +1,42 @@
+# Skyfield-specific gitignore
+
+# TLE data files
+tle_data/*.txt
+tle_data/*.tle
+
+# Ephemeris files
+*.bsp
+de*.bsp
+
+# Satellite output data
+satellite_data.fits
+*_logfile_*.txt
+totaltrail_logfile_*.txt
+totalvalid_logfile_*.txt
+totalcontamination_logfile_*.txt
+totalevent_logfile_*.txt
+totalclosestapproach_logfile_*.txt
+totalpeakmag_logfile_*.txt
+totalaveragemag_logfile_*.txt
+totalpeakintensity_logfile_*.txt
+totalaverageintensity_logfile_*.txt
+
+# Plot outputs
+*.png
+*.pdf
+*.eps
+*.svg
+
+# Script logs
+script*.log
+
+# Package build
+dist/
+build/
+*.egg-info/
+
+# Data directories
+data/
+output/
+results/
+cache/
