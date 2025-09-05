@@ -11,9 +11,9 @@ def set_plot_style():
     plt.rcParams['axes.grid'] = False  # Disable grid lines
     plt.rcParams['grid.alpha'] = 0.5  # Set grid transparency
     plt.rcParams['savefig.dpi'] = 300  # High resolution for saved figures
-        # Set global font to Times New Roman, 11pt
-    plt.rcParams["font.family"] = "serif"
-    plt.rcParams["font.serif"] = ["Times New Roman"]
+    # Use sans-serif fonts which are more reliably available
+    plt.rcParams["font.family"] = "sans-serif"
+    plt.rcParams["font.sans-serif"] = ["DejaVu Serif"]
     plt.rcParams["font.size"] = 11
     # Set default colormap to plasma
     plt.rcParams["image.cmap"] = "plasma"

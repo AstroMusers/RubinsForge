@@ -16,7 +16,7 @@ class StreamToLogger:
     def flush(self):
         pass
 
-def find_closest_TLE(obs_date,tle_data_path):
+def find_closest_TLE(obs_date,tle_data_path, zone):
     """
     Find the closest TLE (Two-Line Element) set to a specific date.
 
@@ -28,20 +28,20 @@ def find_closest_TLE(obs_date,tle_data_path):
         str: The closest TLE string or None if not found.
     """
     closest_tle = None
-    closest_time_diff = 10
+    closest_time_diff = 30
 
     tle_data = os.listdir(tle_data_path)
     ts = load.timescale()
     for tle in tle_data:
         tle_time = parse_tle_time(tle)
         if tle_time:
-            tle_time = ts.from_datetime(tle_time.astimezone(tz=dt.timezone.utc))
+            tle_time = ts.from_datetime(tle_time.astimezone(zone))
             time_diff = abs(tle_time - obs_date)
-            print(f'TLE time: {tle_time}, Obs time: {obs_date}, Time diff: {time_diff}')
+            
             if time_diff < closest_time_diff:
                 closest_time_diff = time_diff
                 closest_tle = tle
-
+    print(f'Closest TLE time: {closest_tle}, Obs time: {obs_date.astimezone(zone).strftime("%Y-%m-%d %H:%M")}, Time diff: {closest_time_diff}')
     return closest_tle, load.tle_file(os.path.join(tle_data_path, closest_tle))
 
 def parse_tle_time(tle):
@@ -56,7 +56,7 @@ def parse_tle_time(tle):
     """
     try:
         lines = tle.strip('.txt').split('_')
-        print(lines)
+        # print(lines)
 
 
         # Extract the epoch time from the second line

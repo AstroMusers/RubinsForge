@@ -10,8 +10,8 @@ import numpy as np
 # BRDFs inferred from on-orbit brightness observations.
 
 # Constants
-chassis_area = 3.65 # m^2
-solar_array_area = 22 # m^2
+chassis_area = 3.64 # m^2
+solar_array_area = 22.68 # m^2
 
 chassis_normal = np.array([0, 0, -1])
 solar_array_normal = np.array([0, 1, 0])

@@ -14,7 +14,6 @@ import skyfield as sf
 from skyfield.api import load, wgs84, EarthSatellite, N, W,S,E, Star, Angle
 import datetime as dt
 import time
-from pytz import timezone
 from skyfield import almanac
 from skyfield.framelib import galactic_frame
 from skyfield.data import hipparcos
@@ -67,15 +66,19 @@ logging.info(f'Script {script_name} started')
 
 ts = load.timescale()
 year = 2025
-day_month_i = [27, 8]
-day_month_f = [30, 8]
+day_month_i = [1, 1]
+day_month_f = [30, 1]
+zone_stl = timezone('Etc/GMT-6')
 zone = timezone('Chile/Continental')
-local = timezone('Etc/GMT-6')
-Nsats = 30
+utc = timezone('UTC')
+obs_start = dt.datetime(year,day_month_i[1], day_month_i[0],0,0,0,0)
+obs_end = dt.datetime(year,day_month_f[1], day_month_f[0],0,0,0,0)
+local_start = ts.from_datetime(zone.localize(obs_start).astimezone(utc))
+local_end = ts.from_datetime(zone.localize(obs_end).astimezone(utc))
+# Nsats = 50 # number of starlinks to check
 treshold = 15 # tresold for contamination
-deltatime = dt.timedelta(minutes=1)
-obs_start = ts.utc(year,day_month_i[1], day_month_i[0],3,0,0)
-obs_end = ts.utc(year,day_month_f[1], day_month_f[0],3,0,0)
+deltatime = dt.timedelta(seconds=1)
+
 #starlinks = load.tle_file('https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=tle')
 eph = load('de421.bsp')
 earth = eph['earth']
@@ -90,8 +93,7 @@ hdu_pr = fits.PrimaryHDU()
 hdu_pr.header['RUNDATE'] = now.strftime('%Y-%m-%d')
 hdu_pr.header['OBSSTART'] = str(obs_start.astimezone(zone))
 hdu_pr.header['OBSEND'] = str(obs_end.astimezone(zone))
-hdu_pr.header['NSATS'] = Nsats
-hdu_pr.header['DAYS'] = int(obs_end - obs_start)
+hdu_pr.header['DAYS'] = int((local_end - local_start))
 # hdu_pr.header['TARGETS'] = '/data/a.saricaoglu/lumos-sat/master.fits'
 hdu_pr.header['TRESHOLD'] = treshold
 hdu_pr.header['DTI'] = str(deltatime)
@@ -113,9 +115,9 @@ with fits.open(pathToTargets) as hdul:
     #     target_i = sf.positionlib.position_of_radec(ra_i[i], dec_i[i], t=obs_start, center=399)
     #     targets.append(wgs84.subpoint(target_i))
 hdul.close()
-file = open(pathToLogs + "/satellite_pos_logfile_for_" + str(day_month_i[0]) + str(day_month_i[1]) + "_" + str(year) + "_" +now.strftime('%d%m_%H%M') + now.strftime('%d%m_%H%M') + ".txt", 'w')
+file = open(pathToLogs + "/satellite_pos_logfile_for_" + obs_start.strftime('%d%m_%H%M') + "_" +now.strftime('%d%m_%H%M') + ".txt", 'w')
 L = []
-description = 'DESCRIPTION: Plots altitude, azimuth and distance. Also checks contamination of n targets in every 0.1 minutes'
+description = f'DESCRIPTION: Plots altitude, azimuth and distance. Also checks contamination of n targets in every {deltatime.total_seconds()/60} minutes'
 L.append(description)
 start_time = time.time()
 
@@ -141,20 +143,20 @@ total_trail_ti = []
 total_sat_alt_at_ti = []
 total_peak_intensity = []
 total_average_intensity = []
-t00 = obs_start
+t00 = local_start
 
 hdu = fits.open(fit_filename, mode='update')
-while t00 < obs_end:
+while t00 < local_end:
     d = d + 1
     
     L.append(f'\n Day #{d}')
-    tle, starlinks = find_closest_TLE(t00, pathToTLE)
+    tle, starlinks = find_closest_TLE(t00, pathToTLE, zone)
+    Nsats = len(starlinks)
+    # set_plot_style()
+    # plt.figure(figsize=(10, 5))
 
-    set_plot_style()
-    plt.figure(figsize=(10, 5))
-
-    ax = plt.subplot(111, projection='aitoff')
-    plt.grid(True)
+    # ax = plt.subplot(111, projection='aitoff')
+    # plt.grid(True)
 
     tar_plot= True
     sat_ra= []
@@ -177,11 +179,10 @@ while t00 < obs_end:
     skips = 0
     t0 = t00
     t1 = t0 + dt.timedelta(days=1)
-    midnight = t0 + dt.timedelta(hours=3)
-    
-    L.append(f'\n Observation period: {t0.astimezone(zone)} to {t1.astimezone(zone)} \n Time zone: {zone}')
-    print(' midnight ', midnight.astimezone(zone))
-    
+
+    L.append(f'\n Observation period: {t0.astimezone(zone).strftime("%Y-%m-%d %H:%M")} to {t1.astimezone(zone).strftime("%Y-%m-%d %H:%M")} \n Time zone: {zone}')
+    print(f'Observation period: {t0.astimezone(zone).strftime("%Y-%m-%d %H:%M")} to {t1.astimezone(zone).strftime("%Y-%m-%d %H:%M")} \n Time zone: {zone}')
+
     f = sf.almanac.dark_twilight_day(eph, rubin_obs)
     times, events = almanac.find_discrete(t0, t1, f)
     previous_e = f(t0).item()
@@ -189,11 +190,11 @@ while t00 < obs_end:
     for t, e in zip(times, events):
         tstr = str(t.astimezone(zone))[:16]
         if previous_e < e:
-            #print(tstr, ' ', almanac.TWILIGHTS[e], 'starts')
+            print(f'{tstr} {almanac.TWILIGHTS[e]} starts')
             if str(almanac.TWILIGHTS[e]) == 'Day':
                 day_start = t
         else:
-            #print(tstr, ' ', almanac.TWILIGHTS[previous_e], 'ends')
+            print(f'{tstr} {almanac.TWILIGHTS[previous_e]} ends')
             if (almanac.TWILIGHTS[previous_e]) == 'Day':
                 day_end = t
         previous_e = e
@@ -211,8 +212,19 @@ while t00 < obs_end:
         rising_time = []
         setting_time = []
         peak_time = []
-        timee, event = starlink.find_events(rubin_obs, t0, t1, altitude_degrees=30.0)
-        for t, e in zip(timee, event):
+        
+        time_start, event_start = starlink.find_events(rubin_obs, t0, day_start, altitude_degrees=30.0)
+        for t, e in zip(time_start, event_start):
+            if e == 0:
+                rising_time.append(t)
+                event_counter = event_counter + 1
+            if e == 1:
+                peak_time.append(t)
+            if e == 2:
+                setting_time.append(t)   
+
+        time_end, event_end = starlink.find_events(rubin_obs, day_end, t1, altitude_degrees=30.0)
+        for t, e in zip(time_end, event_end):
             if e == 0:
                 rising_time.append(t)
                 event_counter = event_counter + 1
@@ -220,24 +232,40 @@ while t00 < obs_end:
                 peak_time.append(t)
             if e == 2:
                 setting_time.append(t)
-        
+
+        print(f'\n Starlink satellite number: {sat_num}, Name: {starlink.name}, # Events: {event_counter}')
         #print('Check point 1 : ',time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time())))
         for rise_t, peak_t, set_t in zip(rising_time,peak_time, setting_time):
-            sunlit = starlink.at(rise_t).is_sunlit(eph) | starlink.at(set_t).is_sunlit(eph) | starlink.at(peak_t).is_sunlit(eph)
-            night = ((rise_t < day_start) | (rise_t > day_end)) & ((set_t < day_start) | (set_t > day_end)) 
-            print(f'sunlit? {sunlit}, night? {night}')
+            # sunlit = starlink.at(rise_t).is_sunlit(eph) | starlink.at(set_t).is_sunlit(eph) | starlink.at(peak_t).is_sunlit(eph)
+            # # night = ((rise_t < day_start) | (rise_t > day_end)) & ((set_t < day_start) | (set_t > day_end)) 
+            # print(f'Sunlit? {sunlit}')
 
             ti = rise_t
-            if night & sunlit:
-                L.append(f'\n Event time: {ti.astimezone(zone)}')
-                trailcan_counter = trailcan_counter + 1
-                print(f'Trail candidate event! Transit no: {trailcan_counter}, starlink no: {sat_num}')
-                print(f'Rising time: {rise_t.astimezone(zone)}, setting time: {set_t.astimezone(zone)}')
+            skip = 0
+            s = len(sat_ra)
+            while starlink.at(ti).is_sunlit(eph) & (ti < set_t) & (skip < 10):
+                
+                if ti == rise_t:
+                    trailcan_counter = trailcan_counter + 1
+                    L.append(f'\nTrail candidate event! Transit no: {trailcan_counter}, Starlink no: {sat_num}')
+                    print(f'Trail candidate event! Transit no: {trailcan_counter}, Starlink no: {sat_num}')
+                    print(f'Rising time: {rise_t.astimezone(zone)}, setting time: {set_t.astimezone(zone)}')
 
-                s = len(sat_ra)
+                separation = []
+                topocentric = trail_event(starlink, rubin_obs, ti, sat_t, sat_al, sat_az, sat_hght)   
+                
+                if topocentric is None:
+                    
+                    print(f'Step at ti in event {trailcan_counter} for satellite {starlink.name} is taking too long, stopping. / higher than altitude limit of <2000m')
+                    skip = skip + 1
+                    ti = ti + deltatime
+                    
+                    continue
+
+                
                 filtered_targets_apparent = []
                 filtered_targets_altaz = []
-                skip = 0
+
                 for target in targets:
                     topocentric_t = rubinobs_astr.at(ti).observe(target)
                     appr = topocentric_t.apparent()
@@ -251,84 +279,76 @@ while t00 < obs_end:
 
                 filtered_targets.append(len(filtered_targets_apparent))
 
-                if tar_plot:
+                # if tar_plot:
 
-                    for target_appr, target_altaz in zip(filtered_targets_apparent, filtered_targets_altaz):
-                        # diff = target - rubin_obs
-                        # topo = diff.at(ti)
-                        # ra_t, dec_t, h_t = topo.radec()
-                        tar_coord = SkyCoord(az=target_altaz[1].degrees, alt=target_altaz[0].degrees, frame='altaz', unit='deg', obstime=ti.utc_datetime(), location=EarthLocation.of_site('rubin'))
-                        # Plot the target's RA and Dec
-                        ax.scatter(-tar_coord.az.wrap_at(180 * u.degree).radian, tar_coord.alt.radian, marker="*", c='b', label=f'Target above 30')  
+                #     for target_appr, target_altaz in zip(filtered_targets_apparent, filtered_targets_altaz):
+                #         # diff = target - rubin_obs
+                #         # topo = diff.at(ti)
+                #         # ra_t, dec_t, h_t = topo.radec()
+                #         tar_coord = SkyCoord(az=target_altaz[1].degrees, alt=target_altaz[0].degrees, frame='altaz', unit='deg', obstime=ti.utc_datetime(), location=EarthLocation.of_site('rubin'))
+                #         # Plot the target's RA and Dec
+                #         #ax.scatter(-tar_coord.az.wrap_at(180 * u.degree).radian, tar_coord.alt.radian, marker="*", c='b', label=f'Target above 30')  
 
-                        tar_plot = False                    
-
-                while (ti < set_t) & ((ti < day_start) | (ti > day_end)) & starlink.at(ti).is_sunlit(eph) & (skip < 10):
-
-                    separation = []
-                    topocentric = trail_event(starlink, rubin_obs, ti, midnight, zone, sat_ra, sat_dec, sat_dist, sat_t, sat_al, sat_az, sat_hght)   
-                    
-                    if topocentric is None:
-                        skip = skip + 1
-                        print(f'Step at ti in event {trailcan_counter} for satellite {starlink.name} is taking too long, stopping. / higher than altitude limit of <2000m')
-                        continue       
-
-                    skips = skips + (skip // 10)    
-
-                    for target_appr, target_altaz in zip(filtered_targets_apparent, filtered_targets_altaz):
-
-                        contamination = target_check(target_appr, target_altaz, topocentric, separation, treshold)
-
-                        if contamination:
-                            contamination_counter = contamination_counter + 1
-                        elif contamination is None:
-                            print(f'Event {trailcan_counter} for satellite {starlink.name} is taking too long, stopping.')
-
-                    if len(separation) != 0 :      
-                        separation = np.sort(separation)
-                        total_closest_approach.append(separation[:100])
-                        daily_separation.append(np.min(separation))
-                    # print('Check point 2 : ',time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time())))
-                    total_trail_ti.append(ti) 
-                    ti = ti + deltatime
-                f = len(sat_ra)
-
-                    #print('Check point 3 : ',time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time())))
-                print(f'indices {s}, {f}')    
-                if f-s != 0:
-                    intensities, ab_magnitudes = brightness_calculation(rubinobs_astr, ti, sun, s, f, sat_al, sat_az, sat_hght)
-
-                    if intensities is None:
-                        print(f'Brightness calc for event {trailcan_counter} for satellite {starlink.name} is taking too long, stopping.')
-                        trailcan_counter = trailcan_counter - 1
-                        continue
+                #         tar_plot = False                    
 
 
-                    sat_altitudes, sat_azimuths = \
-                    np.meshgrid(
-                        sat_al[s:f], 
-                        sat_az[s:f])
-                    sat_heights = sat_hght[s:f]
-                    peak_intensity = intensities.max()
-                    average_intensity = np.mean(intensities)
-                    peak_ab_mag = ab_magnitudes.min()
-                    average_ab_mag = np.mean(ab_magnitudes)
-                    idx = np.argmin(ab_magnitudes)
-                    idx2 = np.argmax(intensities)
-                    peak_alt = sat_altitudes.flatten()[idx]
-                    peak_az = sat_azimuths.flatten()[idx]
+                for target_appr, target_altaz in zip(filtered_targets_apparent, filtered_targets_altaz):
+
+                    contamination = target_check(L, target_appr, target_altaz, topocentric, separation, treshold)
+
+                    if contamination:
+                        contamination_counter = contamination_counter + 1
+
+                    elif contamination is None:
+                        print(f'Event {trailcan_counter} for satellite {starlink.name} is taking too long, stopping.')
+
+                if len(separation) != 0 :      
+                    separation = np.sort(separation)
+                    total_closest_approach.append(separation[:100])
+                    daily_separation.append(np.min(separation))
+                # print('Check point 2 : ',time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time())))
+                total_trail_ti.append(ti) 
+                ti = ti + deltatime
+
+            skips = skips + (skip // 10)    
+            f = len(sat_ra)
+
+            #print('Check point 3 : ',time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time())))
+            # print(f'indices {s}, {f}')    
+            if f-s != 0:
+                intensities, ab_magnitudes = brightness_calculation(rubinobs_astr, ti, sun, s, f, sat_al, sat_az, sat_hght)
+
+                if intensities is None:
+                    print(f'Brightness calc for event {trailcan_counter} for satellite {starlink.name} is taking too long, stopping.')
+                    trailcan_counter = trailcan_counter - 1
+                    continue
 
 
-                    print( f"Brightest: {peak_ab_mag:0.1f} AB Magnitude, Average: {average_ab_mag:0.1f} AB Magnitude")
-                    print(f'Peak intensity: {peak_intensity} W/m^2/sr, Average intensity: {average_intensity} W/m^2/sr')
-                    print( f"Altitude: {peak_alt:0.0f}°, Azimuth: {peak_az:0.0f}°")
-                    total_peak_mag.append(peak_ab_mag)
-                    total_peak_intensity.append(peak_intensity)
-                    total_average_intensity.append(average_intensity)   
-                    total_average_mag.append(average_ab_mag)
-                    #print('Check point 3 : ',time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time())))
-            else:
-                print(f'No trail candidate transit rising time {rise_t.astimezone(zone)}, setting time {set_t.astimezone(zone)}')
+                sat_altitudes, sat_azimuths = \
+                np.meshgrid(
+                    sat_al[s:f], 
+                    sat_az[s:f])
+                sat_heights = sat_hght[s:f]
+                peak_intensity = intensities.max()
+                average_intensity = np.mean(intensities)
+                peak_ab_mag = ab_magnitudes.min()
+                average_ab_mag = np.mean(ab_magnitudes)
+                idx = np.argmin(ab_magnitudes)
+                idx2 = np.argmax(intensities)
+                peak_alt = sat_altitudes.flatten()[idx]
+                peak_az = sat_azimuths.flatten()[idx]
+
+
+                print( f"Brightest: {peak_ab_mag:0.1f} AB Magnitude, Average: {average_ab_mag:0.1f} AB Magnitude")
+                print(f'Peak intensity: {peak_intensity} W/m^2/sr, Average intensity: {average_intensity} W/m^2/sr')
+                print( f"Altitude: {peak_alt:0.0f}°, Azimuth: {peak_az:0.0f}°")
+                total_peak_mag.append(peak_ab_mag)
+                total_peak_intensity.append(peak_intensity)
+                total_average_intensity.append(average_intensity)   
+                total_average_mag.append(average_ab_mag)
+                #print('Check point 3 : ',time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time())))
+        # else:
+        #     print(f'No trail candidate transit rising time {rise_t.astimezone(zone)}, setting time {set_t.astimezone(zone)}')
 
                             
         valid_starlink_counter = valid_starlink_counter + 1
@@ -343,8 +363,10 @@ while t00 < obs_end:
     total_event.append(event_counter)
 
     sat_astrpytime = [t.to_astropy() for t in sat_t]
-    position_hdu = fits.BinTableHDU(Table(data=[sat_astrpytime, sat_ra, sat_dec, sat_dist, sat_az, sat_al, sat_hght], names=['Time', 'RA', 'Dec', 'Distance', 'Azimuth', 'Altitude', 'Height']))
+    position_hdu = fits.BinTableHDU(Table(data=[sat_astrpytime[::20], sat_az[::20], sat_al[::20], sat_hght[::20]], names=['Time', 'Azimuth', 'Altitude', 'Height']))
     position_hdu.header['DAY'] = str(d)
+    position_hdu.header['NSATS'] = Nsats
+
     position_hdu.header['VALSAT'] = valid_starlink_counter
     position_hdu.header['INVSAT'] = invalid_starlink_counter
     position_hdu.header['EVENTS'] = event_counter
@@ -371,20 +393,20 @@ while t00 < obs_end:
     if len(daily_separation) != 0:
         print(f'\n Closest target-satellite event of the day: {np.min(daily_separation)} arcseconds')
     #print('Check point 4 : ',time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time())))
-    sat_time = sat_astrpytime
-    sat_coord = SkyCoord(az=sat_az, alt=sat_al, frame='altaz', unit='deg', obstime=sat_time, location=EarthLocation.of_site('rubin'))
-    scatter = ax.scatter(-sat_coord.az.wrap_at(180 * u.degree).radian, sat_coord.alt.radian, marker='o', c = sat_dist, cmap = 'plasma')
+    # sat_time = [t.utc_datetime() for t in sat_t]
+    # sat_coord = SkyCoord(az=sat_az, alt=sat_al, frame='altaz', unit='deg', obstime=sat_time, location=EarthLocation.of_site('rubin'))
+    #scatter = =ax.scatter(-sat_coord.az.wrap_at(180 * u.degree).radian, sat_coord.alt.radian, marker='o', c = sat_dist, cmap = 'plasma')
 
-    plt.title(f'Starlink positions for {t00.astimezone(zone)} to {obs_end.astimezone(zone)}', y=1.08)
-    ax.set_xlabel('Azimuth (degrees)')
-    #fig.colorbar(scatter).set_label("Distance [km]")
+    # plt.title(f'Starlink positions for {t00.astimezone(zone)} to {obs_end.astimezone(zone)}', y=1.08)
+    # #ax.set_xlabel('Azimuth (degrees)')
+    # #fig.colorbar(scatter).set_label("Distance [km]")
 
-    # Dec is already in degrees, so just label it
-    ax.set_ylabel('Altitude (degrees)')    
-    # ax.set_ylim(np.radians(30), np.radians(90))  # Set y-axis limits to show only altitudes above 30 degrees
-    plt.tight_layout()
-    plt.savefig(pathToPlots +   "/Satellite_positions_for_" + t00.utc_iso(delimiter='_') +  "_B.png")
-    plt.close()
+    # # Dec is already in degrees, so just label it
+    # #ax.set_ylabel('Altitude (degrees)')    
+    # # #ax.set_ylim(np.radians(30), np.radians(90))  # Set y-axis limits to show only altitudes above 30 degrees
+    # plt.tight_layout()
+    # plt.savefig(pathToPlots +   "/Satellite_positions_for_" + t00.utc_iso(delimiter='_') +  "_B.png")
+    # plt.close()
 
     
     end_time = time.time()
@@ -399,7 +421,7 @@ while t00 < obs_end:
     L.append(f"\n Current time: {current_time} Runtime: {hours}h {minutes}m {seconds:.2f}s , Day {d} completed for {valid_starlink_counter} valid events")
     L.append('\n #####################################################################################')
     #print('Check point 5 : ',time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time())))
-    t00 = t1 + dt.timedelta(days=3)
+    t00 = t1 + dt.timedelta(days=4)
 hdu.close()
 total_trail = np.array([total_trail])
 total_valid = np.array([total_valid])
@@ -431,9 +453,9 @@ print(f'\n sat alt at ti len cehck:{ len(total_sat_alt_at_ti)}')
 print(f'\n Average magnitude of all trail candidate events{ np.mean(total_average_mag)}')
 
 
-deltadays = int((t00 - obs_start))
+deltadays = int((local_end - local_start))
 # Create an array of dates for each day in September (1 to 30)
-dates = [i for i in range(1,deltadays+1)]
+dates = np.arange(1, deltadays + 1, 3)
 
 # Define variable 'a1' and 'a2' with random values for each day (for illustration)
 a1 = total_trail[0]  # Random data for demonstration
@@ -480,7 +502,7 @@ plt.title(f'Starlink Events between {obs_start.astimezone(zone)} - {obs_end.asti
 # Add a legend
 plt.legend()
 # Show the plot
-plt.savefig(pathToPlots +   "/Event_histogram_for_"  + obs_start.utc_iso(delimiter='_') +  now.strftime('%d%m_%H%M') + ".png")
+plt.savefig(pathToPlots +   "/Event_histogram_for_"  + obs_start.strftime('%m%y') + '_' +  now.strftime('%d%m_%H%M') + ".png")
 
 # if len(dates) == 1:
 #     def func(pct, allvalues):
@@ -508,7 +530,7 @@ plt.savefig(pathToPlots +   "/Event_histogram_for_"  + obs_start.utc_iso(delimit
 #     fig, ax = plt.subplots(figsize=(10, 7),
 #                         subplot_kw=dict(polar=True))
 
-#     ax.bar(x=left[:, 0],
+#     #ax.bar(x=left[:, 0],
 #         width=norm.sum(axis=1),
 #         bottom=1-size,
 #         height=size,
@@ -517,7 +539,7 @@ plt.savefig(pathToPlots +   "/Event_histogram_for_"  + obs_start.utc_iso(delimit
 #         linewidth=1,
 #         align="edge")
 
-#     ax.bar(x=left.flatten(),
+#     #ax.bar(x=left.flatten(),
 #         width=norm.flatten(),
 #         bottom=1-2 * size,
 #         height=size,
@@ -526,7 +548,7 @@ plt.savefig(pathToPlots +   "/Event_histogram_for_"  + obs_start.utc_iso(delimit
 #         linewidth=1,
 #         align="edge")
 
-#     ax.set_axis_off()
+#     #ax.set_axis_off()
 
 #     plt.savefig(pathToPlots +   "/Piechart_for_"  + str(obs_start.astimezone(zone)) +  now.strftime('%d%m_%H%M') + ".txt")    
 
@@ -556,7 +578,7 @@ plt.ylabel('Number of Trail Candidate Events')
 
 plt.legend()
 
-plt.savefig(pathToPlots +   "/Brightness_histogram_for_" + obs_start.utc_iso(delimiter='_') +  now.strftime('%d%m_%H%M') + ".png")
+plt.savefig(pathToPlots +   "/Brightness_histogram_for_" + obs_start.strftime('%m%y') + '_' +  now.strftime('%d%m_%H%M') + ".png")
 
 plt.figure(figsize=(14, 6))
 
@@ -570,7 +592,7 @@ plt.ylabel('Number of Trail Candidate Events')
 
 plt.legend()
 
-plt.savefig(pathToPlots +   "/Intensity_histogram_for_" + obs_start.utc_iso(delimiter='_') +  now.strftime('%d%m_%H%M') + ".png")
+plt.savefig(pathToPlots +   "/Intensity_histogram_for_" + obs_start.strftime('%m%y') + '_' +  now.strftime('%d%m_%H%M') + ".png")
 
 
 plt.figure(figsize=(14, 6))
@@ -602,7 +624,7 @@ plt.yscale('log')
 plt.legend()
 
 # Show the plot
-plt.savefig(pathToPlots +   "/Separation_histogram_for_" + obs_start.utc_iso(delimiter='_') +  now.strftime('%d%m_%H%M') + ".png")
+plt.savefig(pathToPlots +   "/Separation_histogram_for_" + obs_start.strftime('%m%y') + '_' +  now.strftime('%d%m_%H%M') + ".png")
 
 
 
