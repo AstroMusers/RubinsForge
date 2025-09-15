@@ -29,5 +29,4 @@ if __name__ == "__main__":
     print("\n=== Downloading new TLE data ===")
     download_new_tle(tle_dir)
     
-    print("\n=== Current TLE files ===")
-    list_tle_files(tle_dir)
+ 

@@ -9,11 +9,14 @@ def set_plot_style():
     This function configures the default aesthetics for plots.
     """
     plt.rcParams['axes.grid'] = False  # Disable grid lines
+    plt.rcParams['lines.linewidth'] = 2.5  # Set line width
     plt.rcParams['grid.alpha'] = 0.5  # Set grid transparency
     plt.rcParams['savefig.dpi'] = 300  # High resolution for saved figures
     # Use sans-serif fonts which are more reliably available
     plt.rcParams["font.family"] = "sans-serif"
     plt.rcParams["font.sans-serif"] = ["DejaVu Serif"]
+    plt.rcParams["legend.loc"] = 'lower center'  # Default legend location
+    plt.rcParams["legend.frameon"] = False
     plt.rcParams["font.size"] = 11
     # Set default colormap to plasma
     plt.rcParams["image.cmap"] = "plasma"
