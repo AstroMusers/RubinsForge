@@ -138,7 +138,7 @@ def point_trail_event(starlink, rubin_obs, ti, return_type=None):
             status = True
             return None
         
-def target_check(L,target_apr, target_altaz, topocentric, separation, treshold):
+def target_check(target_apr, target_altaz, topocentric, separation, treshold):
     start = time.time()
     max_duration = 3
     status = False
@@ -149,10 +149,10 @@ def target_check(L,target_apr, target_altaz, topocentric, separation, treshold):
 
         if (difference_angle.arcseconds() <= treshold):
             print(f'Contaminated targets alt/az : {target_apr.alt.degrees} , {target_apr.az.degrees}')
-            L.append(f'Contaminated targets alt/az : {target_apr.alt.degrees} , {target_apr.az.degrees}')
+            # L.append(f'Contaminated targets alt/az : {target_apr.alt.degrees} , {target_apr.az.degrees}')
 
             print(f'Contamination difference angle  : {difference_angle.arcseconds()}')
-            L.append(f'Contamination difference angle  : {difference_angle.arcseconds()}')
+            # L.append(f'Contamination difference angle  : {difference_angle.arcseconds()}')
             print(f'target check done{((time.time() - start))} seconds')
             status = True
             return True
@@ -213,9 +213,43 @@ def filter_targets(targets_altaz, targets_altaz_pre, topocentric, topocentric_pr
     # Target is included if either current or previous position is in box
     return current_in_box | prev_in_box
 
+def check_visit_region(visit_skycoord, topocentric, topocentric_pre):
+    """
+    Check if a satellite's path intersects the visit region
+
+    Parameters:
+    -----------
+    visit : dict
+        Visit information containing skycoord object
+    topocentric : Skyfield position
+        Current satellite position
+    topocentric_pre : Skyfield position
+        Previous satellite position
+
+    Returns:
+    --------
+    bool : True if satellite path intersects visit region, else False
+    """
+    try:
+        pre_alt, pre_az, pre_height = topocentric_pre.altaz()
+        alt, az, height = topocentric.altaz()
+        pre_alt, pre_az = pre_alt.degrees, pre_az.degrees
+        alt, az = alt.degrees, az.degrees
+
+        radius = 1.75  # degrees
+
+        # Check if either current or previous position is inside the visit region
+        current_in_region = topocentric.separation_from(visit_skycoord).degrees <= radius
+        previous_in_region = topocentric_pre.separation_from(visit_skycoord).degrees <= radius
+
+        return current_in_region or previous_in_region
+
+    except Exception as e:
+        print(f"Error in check_visit_region: {e}")
+        return False
 
 
-def calculated_target_check(L,current_targets,previous_targets,topocentric,topocentric_pre, separation, treshold):
+def calculated_target_check(current_targets,previous_targets,topocentric,topocentric_pre, separation, treshold):
 
     max_duration = 10
     status = False
@@ -273,6 +307,7 @@ def calculated_target_check(L,current_targets,previous_targets,topocentric,topoc
             print(f'Postcond check : {difference_angle_sat_target.arcseconds()} + {difference_angle_presat_target.arcseconds()} <= {difference_angle_sat_presat.arcseconds()} + {treshold} is {post_cond}')
 
             if pre_cond & post_cond:
+                print(f'Contaminated target name : {name_up} ra : {target_apr.radec()[0].degrees} , dec : {target_apr.radec()[1].degrees}')
                 print(f'Contaminated target alt/az : {target_altaz.alt.degree} , {target_altaz.az.degree}, pre alt/az : {target_altaz_pre.alt.degree} , {target_altaz_pre.az.degree}')
                 #L.append(f'Contaminated targets alt/az : {target_altaz.alt.degree} , {target_altaz.az.degree}, pre alt/az : {target_altaz_pre.alt.degree} , {target_altaz_pre.az.degree}')
                 print(f'Contaminating satellite alt/az : {topocentric.altaz()[0].degrees} , {topocentric.altaz()[1].degrees}, pre alt/az : {topocentric_pre.altaz()[0].degrees} , {topocentric_pre.altaz()[1].degrees}')

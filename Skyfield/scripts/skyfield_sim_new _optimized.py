@@ -269,7 +269,7 @@ for day in schedule:
                             separation, threshold
                         )
                         if contamination:
-                            exposure.increment_counters(contaminations=len(names))
+                            exposure.increment_counters(contaminations=1)
                             contamination_data = {'contaminated_targets': contaminated_targets,
                                                   'contaminated_names': names,
                                                   'separations': separation
