@@ -20,6 +20,8 @@ from ..satellites import starlink_sat
 import lumos.plot
 import lumos.brdf.library
 
+logger = logging.getLogger(__name__)
+
 
 
     
@@ -148,12 +150,12 @@ def target_check(target_apr, target_altaz, topocentric, separation, treshold):
         separation.append(difference_angle.arcseconds())
 
         if (difference_angle.arcseconds() <= treshold):
-            print(f'Contaminated targets alt/az : {target_apr.alt.degrees} , {target_apr.az.degrees}')
+            logger.debug('Contaminated targets alt/az : %s , %s', target_apr.alt.degrees, target_apr.az.degrees)
             # L.append(f'Contaminated targets alt/az : {target_apr.alt.degrees} , {target_apr.az.degrees}')
 
-            print(f'Contamination difference angle  : {difference_angle.arcseconds()}')
+            logger.debug('Contamination difference angle  : %s', difference_angle.arcseconds())
             # L.append(f'Contamination difference angle  : {difference_angle.arcseconds()}')
-            print(f'target check done{((time.time() - start))} seconds')
+            logger.debug('target check done %s seconds', (time.time() - start))
             status = True
             return True
         else:
@@ -161,7 +163,7 @@ def target_check(target_apr, target_altaz, topocentric, separation, treshold):
             return False
 
 
-def filter_targets(targets_altaz, targets_altaz_pre, topocentric, topocentric_pre):
+def filter_targets(targets_altaz, topocentric, topocentric_pre, padding_treshold_arcsec = 30.0):
     """
     Vectorized target filtering for better performance
 
@@ -183,35 +185,38 @@ def filter_targets(targets_altaz, targets_altaz_pre, topocentric, topocentric_pr
     alt, az, height = topocentric.altaz()
     pre_alt, pre_az = pre_alt.degrees, pre_az.degrees
     alt, az = alt.degrees, az.degrees
-    #print(f'Box area: Altitude ({min(pre_alt, alt)} to {max(pre_alt, alt)}), Azimuth ({min(pre_az, az)} to {max(pre_az, az)})')
-    max_alt, min_alt, max_az, min_az = (max(pre_alt, alt), min(pre_alt, alt), max(pre_az, az) , min(pre_az, az))
+
+    max_alt = max(pre_alt, alt)
+    min_alt = min(pre_alt, alt)
+
+    # Apply padding to the altitude bounds
+    padding_deg = padding_treshold_arcsec / 3600.0  # Convert arcseconds to degrees
+    max_alt += padding_deg
+    min_alt -= padding_deg
 
     # Extract coordinates as arrays
     current_alts = np.array([t.alt.degree for t in targets_altaz])
     current_azs = np.array([t.az.degree for t in targets_altaz])
-    prev_alts = np.array([t.alt.degree for t in targets_altaz_pre])
-    prev_azs = np.array([t.az.degree for t in targets_altaz_pre])
 
+    pad_az = padding_deg / max(np.cos(np.radians((max_alt + min_alt) / 2)), 0.1)  # Adjust azimuth padding based on altitude
     # Check altitude bounds
     current_alt_mask = (current_alts >= min_alt) & (current_alts <= max_alt)
-    prev_alt_mask = (prev_alts >= min_alt) & (prev_alts <= max_alt)
 
-    # Check azimuth bounds (handle wraparound)
-    if max_az >= min_az:
-        # Normal case
-        current_az_mask = (current_azs >= min_az) & (current_azs <= max_az)
-        prev_az_mask = (prev_azs >= min_az) & (prev_azs <= max_az)
+    # Check azimuth bounds with proper 0/360 wrap handling.
+    # Use signed shortest-angle differences relative to previous satellite azimuth.
+    sat_delta_az = ((az - pre_az + 180.0) % 360.0) - 180.0
+    current_rel = ((current_azs - pre_az + 180.0) % 360.0) - 180.0
+
+    if sat_delta_az >= 0:
+        current_az_mask = (current_rel >= -pad_az) & (current_rel <= sat_delta_az + pad_az)
     else:
-        # Wraparound case
-        current_az_mask = (current_azs >= min_az) | (current_azs <= max_az)
-        prev_az_mask = (prev_azs >= min_az) | (prev_azs <= max_az)
+        current_az_mask = (current_rel <= pad_az) & (current_rel >= sat_delta_az - pad_az)
 
     # Combine conditions
     current_in_box = current_alt_mask & current_az_mask
-    prev_in_box = prev_alt_mask & prev_az_mask
 
     # Target is included if either current or previous position is in box
-    return current_in_box | prev_in_box
+    return current_in_box
 
 def check_visit_region(visit_skycoord, topocentric, topocentric_pre):
     """
@@ -230,34 +235,128 @@ def check_visit_region(visit_skycoord, topocentric, topocentric_pre):
     --------
     bool : True if satellite path intersects visit region, else False
     """
+    radius = 1.75  # degrees
+
     try:
-        pre_alt, pre_az, pre_height = topocentric_pre.altaz()
-        alt, az, height = topocentric.altaz()
-        pre_alt, pre_az = pre_alt.degrees, pre_az.degrees
-        alt, az = alt.degrees, az.degrees
+        visit_alt, visit_az, _ = visit_skycoord.altaz()
+        pre_alt, pre_az, _ = topocentric_pre.altaz()
+        alt, az, _ = topocentric.altaz()
 
-        radius = 1.75  # degrees
+        visit_alt = visit_alt.degrees
+        visit_az = visit_az.degrees
+        pre_alt = pre_alt.degrees
+        pre_az = pre_az.degrees
+        alt = alt.degrees
+        az = az.degrees
 
-        # Check if either current or previous position is inside the visit region
-        current_in_region = topocentric.separation_from(visit_skycoord).degrees <= radius
-        previous_in_region = topocentric_pre.separation_from(visit_skycoord).degrees <= radius
+        def wrap_delta_az(delta):
+            return ((delta + 180.0) % 360.0) - 180.0
 
-        return current_in_region or previous_in_region
+        cos_alt0 = np.cos(np.radians(visit_alt))
+
+        x0 = wrap_delta_az(pre_az - visit_az) * cos_alt0
+        y0 = pre_alt - visit_alt
+        x1 = wrap_delta_az(az - visit_az) * cos_alt0
+        y1 = alt - visit_alt
+
+        # Fast endpoint acceptance
+        if (x0 * x0 + y0 * y0) <= radius * radius:
+            return True
+        if (x1 * x1 + y1 * y1) <= radius * radius:
+            return True
+
+        dx = x1 - x0
+        dy = y1 - y0
+
+        a = dx * dx + dy * dy
+        if a == 0.0:
+            return False
+
+        b = 2.0 * (x0 * dx + y0 * dy)
+        c = x0 * x0 + y0 * y0 - radius * radius
+
+        discriminant = b * b - 4.0 * a * c
+        if discriminant < 0.0:
+            return False
+
+        sqrt_disc = np.sqrt(discriminant)
+        t1 = (-b - sqrt_disc) / (2.0 * a)
+        t2 = (-b + sqrt_disc) / (2.0 * a)
+
+        return (0.0 <= t1 <= 1.0) or (0.0 <= t2 <= 1.0)
 
     except Exception as e:
-        print(f"Error in check_visit_region: {e}")
+        logger.exception("Error in check_visit_region")
         return False
 
 
-def calculated_target_check(current_targets,previous_targets,topocentric,topocentric_pre, separation, treshold):
+# def calculated_target_check(current_targets,topocentric,topocentric_pre, separation, treshold):
 
-    max_duration = 10
-    status = False
+#     max_duration = 10
+#     status = False
+#     contaminated = []
+#     contaminated_names = []
+#     i = 0
+
+#     targets_boxed_mask = filter_targets(current_targets['skycoords'], topocentric, topocentric_pre)
+#     #print(f'Number of targets in box: {np.sum(targets_boxed_mask)}')
+#     if np.sum(targets_boxed_mask) == 0:
+#         return False, contaminated, contaminated_names
+
+#     # Convert to numpy array for boolean indexing
+#     names = np.array(current_targets['names_up'], dtype=object)
+#     visible_targets_array = np.array(current_targets['apparent_positions'], dtype=object)
+#     visible_targets_altaz_array = np.array(current_targets['skycoords'], dtype=object)
+
+
+#     # Now you can use boolean indexing
+#     print(f'filtered visible targets : {len(visible_targets_array[targets_boxed_mask])} out of {len(visible_targets_array)}')
+
+#     # Use the filtered arrays for processing
+#     visible_targets_appr = visible_targets_array[targets_boxed_mask].tolist()
+#     visible_targets_altaz = visible_targets_altaz_array[targets_boxed_mask].tolist()
+#     names_up = names[targets_boxed_mask].tolist()
+
+#     for name_up,target_apr, target_altaz in zip(names_up, visible_targets_appr, visible_targets_altaz):
+#         start = time.time()
+#         while (((time.time() - start) < max_duration) & (status == False)):
+
+
+#             difference_angle_sat_target = topocentric.separation_from(target_apr)
+
+#             difference_angle_presat_target = topocentric_pre.separation_from(target_apr)
+
+#             difference_angle_sat_presat = topocentric.separation_from(topocentric_pre)
+
+#             separation.append(np.mean([difference_angle_sat_target.arcseconds(), difference_angle_presat_target.arcseconds()]))
+
+#             segment_cond = difference_angle_sat_target.arcseconds() + difference_angle_presat_target.arcseconds() <= difference_angle_sat_presat.arcseconds() + treshold
+#             print(f'Segment check : {difference_angle_sat_target.arcseconds()} + {difference_angle_presat_target.arcseconds()} <= {difference_angle_sat_presat.arcseconds()} + {treshold} is {segment_cond}')
+
+#             if segment_cond:
+#                 print(f'Contaminated target name : {name_up} ra : {target_apr.radec()[0].degrees} , dec : {target_apr.radec()[1].degrees}')
+#                 print(f'Contaminated target alt/az : {target_altaz.alt.degree} , {target_altaz.az.degree}')
+#                 print(f'Contaminating satellite alt/az : {topocentric.altaz()[0].degrees} , {topocentric.altaz()[1].degrees}, pre alt/az : {topocentric_pre.altaz()[0].degrees} , {topocentric_pre.altaz()[1].degrees}')
+#                 print(f'Segment check : {difference_angle_sat_target.arcseconds()} + {difference_angle_presat_target.arcseconds()} <= {difference_angle_sat_presat.arcseconds()} + {treshold} is {segment_cond}')
+#                 print(f'Target check done {((time.time() - start))} seconds')
+#                 contaminated.append(target_altaz)
+#                 contaminated_names.append(name_up)
+#                 break
+
+#             else:
+
+#                 break
+            
+#         else:
+#             print(f'Target is taking too long, skipping: {time.time() - start}')
+
+#     return len(contaminated) > 0, contaminated, contaminated_names
+
+def calculated_target_check(current_targets,topocentric,topocentric_pre, separation, treshold):
     contaminated = []
     contaminated_names = []
-    i = 0
 
-    targets_boxed_mask = filter_targets(current_targets['skycoords'], previous_targets['skycoords'], topocentric, topocentric_pre)
+    targets_boxed_mask = filter_targets(current_targets['skycoords'], topocentric, topocentric_pre)
     #print(f'Number of targets in box: {np.sum(targets_boxed_mask)}')
     if np.sum(targets_boxed_mask) == 0:
         return False, contaminated, contaminated_names
@@ -265,65 +364,127 @@ def calculated_target_check(current_targets,previous_targets,topocentric,topocen
     # Convert to numpy array for boolean indexing
     names = np.array(current_targets['names_up'], dtype=object)
     visible_targets_array = np.array(current_targets['apparent_positions'], dtype=object)
-    pre_visible_targets_array = np.array(previous_targets['apparent_positions'], dtype=object)
     visible_targets_altaz_array = np.array(current_targets['skycoords'], dtype=object)
-    pre_visible_targets_altaz_array = np.array(previous_targets['skycoords'], dtype=object)
 
 
     # Now you can use boolean indexing
-    print(f'filtered visible targets : {len(visible_targets_array[targets_boxed_mask])} out of {len(visible_targets_array)}')
+    logger.debug('filtered visible targets : %s out of %s', len(visible_targets_array[targets_boxed_mask]), len(visible_targets_array))
 
     # Use the filtered arrays for processing
     visible_targets_appr = visible_targets_array[targets_boxed_mask].tolist()
-    pre_visible_targets_appr = pre_visible_targets_array[targets_boxed_mask].tolist()
     visible_targets_altaz = visible_targets_altaz_array[targets_boxed_mask].tolist()
-    pre_visible_targets_altaz = pre_visible_targets_altaz_array[targets_boxed_mask].tolist()
     names_up = names[targets_boxed_mask].tolist()
 
-    for name_up,target_apr, target_apr_pre, target_altaz, target_altaz_pre in zip(names_up,visible_targets_appr, pre_visible_targets_appr, visible_targets_altaz, pre_visible_targets_altaz):
-        start = time.time()
-        while (((time.time() - start) < max_duration) & (status == False)):
+    pre_sat_alt, pre_sat_az, _ = topocentric_pre.altaz()
+    sat_alt, sat_az, _ = topocentric.altaz()
+    pre_alt = pre_sat_alt.degrees
+    pre_az = pre_sat_az.degrees
+    alt = sat_alt.degrees
+    az = sat_az.degrees
 
+    sat_alt_deg = sat_alt.degrees
+    sat_az_deg = sat_az.degrees
+    pre_sat_alt_deg = pre_sat_alt.degrees
+    pre_sat_az_deg = pre_sat_az.degrees
 
-            difference_angle_sat_target = topocentric.separation_from(target_apr)
+    def wrap_delta_az(delta):
+        return ((delta + 180.0) % 360.0) - 180.0
 
-            difference_angle_presat_target = topocentric_pre.separation_from(target_apr)
+    try:
+        target_alts = np.array([t.alt.degree for t in visible_targets_altaz], dtype=float)
+        target_azs = np.array([t.az.degree for t in visible_targets_altaz], dtype=float)
 
-            difference_angle_sat_pretarget = topocentric.separation_from(target_apr_pre)
+        cos_alt0 = np.cos(np.radians(target_alts))
 
-            difference_angle_presat_pretarget = topocentric_pre.separation_from(target_apr_pre)
+        x0 = wrap_delta_az(pre_az - target_azs) * cos_alt0
+        y0 = pre_alt - target_alts
+        x1 = wrap_delta_az(az - target_azs) * cos_alt0
+        y1 = alt - target_alts
 
-            difference_angle_sat_presat = topocentric.separation_from(topocentric_pre)
+        dx = x1 - x0
+        dy = y1 - y0
+        a = dx * dx + dy * dy
 
-            difference_angle_target_pretarget = target_apr.separation_from(target_apr_pre)
+        t_closest = np.zeros_like(a)
+        non_zero = a > 0.0
+        t_closest[non_zero] = - (x0[non_zero] * dx[non_zero] + y0[non_zero] * dy[non_zero]) / a[non_zero]
+        t_closest = np.clip(t_closest, 0.0, 1.0)
 
-            difference_angle_target_astropy = target_altaz.separation(target_altaz_pre)
+        x_closest = x0 + t_closest * dx
+        y_closest = y0 + t_closest * dy
 
-            separation.append(np.mean([difference_angle_sat_target.arcseconds(), difference_angle_presat_pretarget.arcseconds()]))
+        min_dist_deg = np.sqrt(x_closest * x_closest + y_closest * y_closest)
+        min_dist_arcsec = min_dist_deg * 3600.0
+        separation.extend(min_dist_arcsec.tolist())
 
-            pre_cond = difference_angle_sat_pretarget.arcseconds() + difference_angle_presat_pretarget.arcseconds() <= difference_angle_sat_presat.arcseconds() + treshold
-            post_cond = difference_angle_sat_target.arcseconds() + difference_angle_presat_target.arcseconds() <= difference_angle_sat_presat.arcseconds() + treshold
-            print(f'Precond check : {difference_angle_sat_pretarget.arcseconds()} + {difference_angle_presat_pretarget.arcseconds()} <= {difference_angle_sat_presat.arcseconds()} + {treshold} is {pre_cond}')
-            print(f'Postcond check : {difference_angle_sat_target.arcseconds()} + {difference_angle_presat_target.arcseconds()} <= {difference_angle_sat_presat.arcseconds()} + {treshold} is {post_cond}')
+        contaminated_idx = np.where(min_dist_arcsec <= treshold)[0]
 
-            if pre_cond & post_cond:
-                print(f'Contaminated target name : {name_up} ra : {target_apr.radec()[0].degrees} , dec : {target_apr.radec()[1].degrees}')
-                print(f'Contaminated target alt/az : {target_altaz.alt.degree} , {target_altaz.az.degree}, pre alt/az : {target_altaz_pre.alt.degree} , {target_altaz_pre.az.degree}')
-                #L.append(f'Contaminated targets alt/az : {target_altaz.alt.degree} , {target_altaz.az.degree}, pre alt/az : {target_altaz_pre.alt.degree} , {target_altaz_pre.az.degree}')
-                print(f'Contaminating satellite alt/az : {topocentric.altaz()[0].degrees} , {topocentric.altaz()[1].degrees}, pre alt/az : {topocentric_pre.altaz()[0].degrees} , {topocentric_pre.altaz()[1].degrees}')
-                print(f'Precond check : {difference_angle_sat_pretarget.arcseconds()} + {difference_angle_presat_pretarget.arcseconds()} <= {difference_angle_sat_presat.arcseconds()} + {treshold} is {pre_cond}')
-                print(f'Postcond check : {difference_angle_sat_target.arcseconds()} + {difference_angle_presat_target.arcseconds()} <= {difference_angle_sat_presat.arcseconds()} + {treshold} is {post_cond}')
-                print(f'Target check done {((time.time() - start))} seconds')
+        for idx in contaminated_idx:
+            name_up = names_up[idx]
+            target_apr = visible_targets_appr[idx]
+            target_altaz = visible_targets_altaz[idx]
+            logger.info('Contaminated target name : %s ra : %s , dec : %s', name_up, target_apr.radec()[0].degrees, target_apr.radec()[1].degrees)
+            logger.info('Contaminated target alt/az : %s , %s', target_altaz.alt.degree, target_altaz.az.degree)
+            logger.info('Contaminating satellite alt/az : %s , %s, pre alt/az : %s , %s', sat_alt_deg, sat_az_deg, pre_sat_alt_deg, pre_sat_az_deg)
+            logger.info('Segment min distance check : %s <= %s arcsec is %s', min_dist_arcsec[idx], treshold, True)
+            contaminated.append(target_altaz)
+            contaminated_names.append(name_up)
+
+    except Exception as e:
+        logger.exception("Error in calculated_target_check vectorized path")
+        pre_alt, pre_az, _ = topocentric_pre.altaz()
+        alt, az, _ = topocentric.altaz()
+        pre_alt = pre_alt.degrees
+        pre_az = pre_az.degrees
+        alt = alt.degrees
+        az = az.degrees
+
+        def wrap_delta_az(delta):
+            return ((delta + 180.0) % 360.0) - 180.0
+
+        for name_up, target_apr, target_altaz in zip(names_up, visible_targets_appr, visible_targets_altaz):
+            try:
+                target_alt = target_altaz.alt.degree
+                target_az = target_altaz.az.degree
+
+                cos_alt0 = np.cos(np.radians(target_alt))
+
+                x0 = wrap_delta_az(pre_az - target_az) * cos_alt0
+                y0 = pre_alt - target_alt
+                x1 = wrap_delta_az(az - target_az) * cos_alt0
+                y1 = alt - target_alt
+
+                dx = x1 - x0
+                dy = y1 - y0
+                a = dx * dx + dy * dy
+
+                if a == 0.0:
+                    t_closest = 0.0
+                else:
+                    t_closest = - (x0 * dx + y0 * dy) / a
+                    t_closest = max(0.0, min(1.0, t_closest))
+
+                x_closest = x0 + t_closest * dx
+                y_closest = y0 + t_closest * dy
+
+                min_dist_deg = np.sqrt(x_closest * x_closest + y_closest * y_closest)
+                min_dist_arcsec = min_dist_deg * 3600.0
+                separation.append(min_dist_arcsec)
+
+                segment_cond = min_dist_arcsec <= treshold
+
+            except Exception as e_inner:
+                logger.exception("Error in calculated_target_check fallback")
+                segment_cond = False
+                min_dist_arcsec = np.nan
+
+            if segment_cond:
+                logger.info('Contaminated target name : %s ra : %s , dec : %s', name_up, target_apr.radec()[0].degrees, target_apr.radec()[1].degrees)
+                logger.info('Contaminated target alt/az : %s , %s', target_altaz.alt.degree, target_altaz.az.degree)
+                logger.info('Contaminating satellite alt/az : %s , %s, pre alt/az : %s , %s', topocentric.altaz()[0].degrees, topocentric.altaz()[1].degrees, topocentric_pre.altaz()[0].degrees, topocentric_pre.altaz()[1].degrees)
+                logger.info('Segment min distance check : %s <= %s arcsec is %s', min_dist_arcsec, treshold, segment_cond)
                 contaminated.append(target_altaz)
                 contaminated_names.append(name_up)
-                break
-
-            else:
-
-                break
-            
-        else:
-            print(f'Target is taking too long, skipping: {time.time() - start}')
 
     return len(contaminated) > 0, contaminated, contaminated_names
 
@@ -361,7 +522,7 @@ def calculate_target_positions(fits_file, deltatime, deltaday,local_start, local
     n_targets = len(targets)
     fields = ['alt', 'az', 'distance_m', 'visible']
     n_fields = len(fields)
-    print(f'len times: {n_times}, len targets: {n_targets}')
+    logger.info('len times: %s, len targets: %s', n_times, n_targets)
 
     cube_a = np.zeros((n_times, n_targets, n_fields), dtype=float)
     cube_b = np.zeros((n_times, n_targets, 1), dtype=object)
@@ -389,7 +550,7 @@ def calculate_target_positions(fits_file, deltatime, deltaday,local_start, local
     hdu_a.header["TARGETS"] = ",".join(names)
     hdu_a.writeto(fits_file, overwrite=True)
 
-    print(f'FITS file saved to {fits_file}')
+    logger.info('FITS file saved to %s', fits_file)
 
     return fits_file
 

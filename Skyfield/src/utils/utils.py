@@ -8,6 +8,9 @@ from astropy.coordinates import SkyCoord, EarthLocation
 import skyfield as sf
 from skyfield.api import load, wgs84, EarthSatellite, N, W,S,E, Star, Angle
 from skyfield import almanac
+from astropy.table import Table, Column
+import numpy as np
+
 
 class StreamToLogger:
     def __init__(self, logger, log_level):
@@ -283,6 +286,273 @@ def exposure_targets_to_stars(exposures_file):
             target_name.append(f"Target {target}")
 
         return target_star, target_name
+    
+def fits_sanitize_table(tab):
+    """
+    Sanitize an Astropy Table for FITS output.
+    """
+    out = Table()
+    for name in tab.colnames:
+        col = tab[name]
+        # Skip columns without dtype (e.g., astropy Time objects)
+        if not hasattr(col, 'dtype'):
+            out[name] = col
+            continue
+        # Scalar strings -> fixed-width ASCII
+        if (col.dtype.kind in ('U', 'S')) and col.ndim == 1:
+            maxlen = max((len(x) for x in col.astype(str)), default=1)
+            out[name] = np.asarray(col.astype(str), dtype=f'S{maxlen}')
+            # Object dtype likely holds lists/arrays
+        elif col.dtype == object:
+            sample = next((v for v in col if v is not None), None)
+            if isinstance(sample, (list, tuple, np.ndarray)):
+                # If elements are strings -> join
+                if len(sample) and all(isinstance(x, str) for x in sample):
+                    joined = [','.join(map(str, v)) if v is not None else '' for v in col]
+                    maxlen = max((len(s) for s in joined), default=1)
+                    out[name] = np.asarray(joined, dtype=f'S{maxlen}')
+                else:
+                    # Assume numeric arrays: leave as object of ndarrays so astropy makes PE()/PJ()
+                    out[name] = Column([None if v is None else np.asarray(v) for v in col], name=name)
+            else:
+                out[name] = col
+        else:
+            out[name] = col
+    return out
+
+def find_satellites_up(satellites, observer, start_time, end_time, altitude_degrees=30.0, check_sunlit=True, eph=None, return_periods=False):
+    """
+    Find satellites that are above horizon and optionally sunlit during time period
+    
+    Parameters:
+    -----------
+    satellites : list
+        List of Skyfield satellite objects
+    observer : Skyfield observer position
+        Observer position (e.g., rubin_obs)
+    start_time : Skyfield time
+        Start time for checking
+    end_time : Skyfield time  
+        End time for checking
+    altitude_degrees : float
+        Minimum altitude in degrees (default 30.0)
+    check_sunlit : bool
+        Whether to check if satellite is sunlit (default True)
+    eph : Skyfield ephemeris
+        Ephemeris for sunlit check (required if check_sunlit=True)
+    return_periods : bool
+        If True, return detailed period information for each satellite
+        
+    Returns:
+    --------
+    If return_periods=False:
+        list : Satellites that meet the criteria
+    If return_periods=True:
+        tuple : (satellites_up, satellite_periods)
+            satellites_up: list of satellites
+            satellite_periods: dict with satellite -> period info
+    """
+    satellites_up = []
+    satellite_periods = {}
+
+    for satellite in satellites:
+        try:
+            times, events = satellite.find_events(
+                observer,
+                start_time,
+                end_time,
+                altitude_degrees=altitude_degrees
+            )
+
+            difference = satellite - observer
+            topocentric = difference.at(start_time)
+            alt, az, distance = topocentric.altaz()
+            above_horizon_start = alt.degrees > altitude_degrees
+
+            visible_periods = []
+            current_period_start = start_time if above_horizon_start else None
+
+            for event_time, event in zip(times, events):
+                if event == 0:
+                    current_period_start = event_time
+                elif event == 2 and current_period_start is not None:
+                    visible_periods.append((current_period_start, event_time))
+                    current_period_start = None
+
+            if current_period_start is not None:
+                visible_periods.append((current_period_start, end_time))
+
+            if not visible_periods:
+                continue
+
+            sunlit_periods = []
+            if check_sunlit and eph is not None:
+                for vis_start, vis_end in visible_periods:
+                    duration = (vis_end.utc_datetime() - vis_start.utc_datetime()).total_seconds()
+                    num_samples = max(1, int(duration))
+                    sample_times = [
+                        vis_start + (vis_end - vis_start) * i / num_samples
+                        for i in range(num_samples + 1)
+                    ]
+
+                    sunlit_start = None
+                    for sample_time in sample_times:
+                        is_sunlit = satellite.at(sample_time).is_sunlit(eph)
+                        if is_sunlit and sunlit_start is None:
+                            sunlit_start = sample_time
+                        elif (not is_sunlit) and sunlit_start is not None:
+                            sunlit_periods.append((sunlit_start, sample_time))
+                            sunlit_start = None
+
+                    if sunlit_start is not None:
+                        sunlit_periods.append((sunlit_start, vis_end))
+            else:
+                sunlit_periods = visible_periods
+
+            combined_periods = sunlit_periods if (check_sunlit and eph is not None) else visible_periods
+            if not combined_periods:
+                continue
+
+            satellites_up.append(satellite)
+
+            if return_periods:
+                satellite_periods[satellite] = {
+                    'visible_periods': visible_periods,
+                    'sunlit_periods': sunlit_periods,
+                    'combined_periods': combined_periods,
+                    'total_visible_duration': sum([
+                        (end.utc_datetime() - start.utc_datetime()).total_seconds()
+                        for start, end in visible_periods
+                    ]),
+                    'total_sunlit_duration': sum([
+                        (end.utc_datetime() - start.utc_datetime()).total_seconds()
+                        for start, end in sunlit_periods
+                    ]) if sunlit_periods else 0
+                }
+
+        except Exception as e:
+            print(f"Error checking satellite {satellite.name}: {e}")
+            continue
+    
+    if return_periods:
+        return satellites_up, satellite_periods
+    else:
+        return satellites_up
+
+def find_satellites_up_simple(satellites, observer, check_time, altitude_degrees=30.0, check_sunlit=True, eph=None):
+    """
+    Simplified version - check satellites at a single time point
+    
+    Parameters:
+    -----------
+    satellites : list
+        List of Skyfield satellite objects
+    observer : Skyfield observer position
+    check_time : Skyfield time
+        Time to check satellite positions
+    altitude_degrees : float
+        Minimum altitude in degrees
+    check_sunlit : bool
+        Whether to check if satellite is sunlit
+    eph : Skyfield ephemeris
+        Ephemeris for sunlit check
+        
+    Returns:
+    --------
+    list : Satellites above horizon (and sunlit if requested)
+    """
+    satellites_up = []
+    
+    for satellite in satellites:
+        try:
+            # Check altitude
+            difference = satellite - observer
+            topocentric = difference.at(check_time)
+            alt, az, distance = topocentric.altaz()
+            
+            if alt.degrees > altitude_degrees:
+                # Check if sunlit (if requested)
+                if check_sunlit and eph is not None:
+                    if satellite.at(check_time).is_sunlit(eph):
+                        satellites_up.append(satellite)
+                else:
+                    satellites_up.append(satellite)
+                    
+        except Exception as e:
+            print(f"Error checking satellite {satellite.name}: {e}")
+            continue
+    
+    return satellites_up
+
+def get_satellite_count_info(satellites, observer, check_time, altitude_degrees=30.0, eph=None):
+    """
+    Get detailed count information about satellites
+    
+    Returns:
+    --------
+    dict : Satellite counts and statistics
+    """
+    total_satellites = len(satellites)
+    above_horizon = 0
+    sunlit = 0
+    above_horizon_and_sunlit = 0
+    
+    for satellite in satellites:
+        try:
+            # Check altitude
+            difference = satellite - observer
+            topocentric = difference.at(check_time)
+            alt, az, distance = topocentric.altaz()
+            
+            is_above_horizon = alt.degrees > altitude_degrees
+            is_sunlit = satellite.at(check_time).is_sunlit(eph) if eph else False
+            
+            if is_above_horizon:
+                above_horizon += 1
+                
+            if is_sunlit:
+                sunlit += 1
+                
+            if is_above_horizon and is_sunlit:
+                above_horizon_and_sunlit += 1
+                
+        except Exception as e:
+            continue
+    
+    return {
+        'total': total_satellites,
+        'above_horizon': above_horizon,
+        'sunlit': sunlit,
+        'above_horizon_and_sunlit': above_horizon_and_sunlit,
+        'time': check_time
+    }
+
+def is_time_in_periods(check_time, periods):
+    """
+    Check if a time falls within any of the given periods
+    
+    Parameters:
+    -----------
+    check_time : Skyfield time
+        Time to check
+    periods : list of tuples
+        List of (start_time, end_time) tuples
+        
+    Returns:
+    --------
+    bool : True if time falls within any period
+    """
+    check_datetime = check_time.utc_datetime()
+    
+    for start_time, end_time in periods:
+        start_datetime = start_time.utc_datetime()
+        end_datetime = end_time.utc_datetime()
+        
+        if start_datetime <= check_datetime <= end_datetime:
+            return True
+    
+    return False
+
 
 # def get_daily_twilight_periods_mjd(start_date, end_date, location=None, eph=None):
 #     """
