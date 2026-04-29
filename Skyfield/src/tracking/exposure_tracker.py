@@ -6,7 +6,7 @@ from astropy.visualization.wcsaxes import SphericalCircle
 from skyfield.positionlib import ICRF, position_of_radec
 from astropy import units as u
 from skyfield.api import wgs84, load, Star, Angle, S, W
-
+from ..utils.utils import fits_sanitize_table
 eph = load('de421.bsp')
 earth = eph['earth']
 sun = eph['sun']
@@ -124,15 +124,33 @@ class ExposureTracker:
         
         # Add contaminated targets
         if contamination_data and contamination_data.get('contaminated_targets'):
-            for target in contamination_data['contaminated_targets']:
+            contaminated_targets = contamination_data.get('contaminated_targets', [])
+            contaminated_names = contamination_data.get('contaminated_names', [])
+            contaminated_intensities = contamination_data.get('intensities', [])
+            contaminated_ab_magnitudes = contamination_data.get('ab_magnitudes', [])
+            contaminated_separations = contamination_data.get('separations', [])
+
+            for idx, target in enumerate(contaminated_targets):
+                target_name = contaminated_names[idx] if idx < len(contaminated_names) else 'UNKNOWN_TARGET'
+                if isinstance(target_name, (list, tuple, np.ndarray)):
+                    target_name = target_name[0] if len(target_name) > 0 else 'UNKNOWN_TARGET'
+                if isinstance(target_name, bytes):
+                    target_name = target_name.decode(errors='ignore')
+                target_name = str(target_name)
+
+                target_intensity = contaminated_intensities[idx] if idx < len(contaminated_intensities) else np.nan
+                target_ab_magnitude = contaminated_ab_magnitudes[idx] if idx < len(contaminated_ab_magnitudes) else np.nan
+                target_separation = contaminated_separations[idx] if idx < len(contaminated_separations) else np.nan
+
                 self.all_contaminated_targets.append({
                     'time': ti,
                     'position': target,
-                    'name': contamination_data.get('contaminated_names', []),
-                    'intensity': contamination_data.get('intensities', []),
-                    'ab_magnitude': contamination_data.get('ab_magnitudes', []),
-                    'separation': contamination_data.get('separations', [])
+                    'name': target_name,
+                    'intensity': target_intensity,
+                    'ab_magnitude': target_ab_magnitude,
+                    'separation': target_separation
                 })
+                self.all_contaminated_names.append(target_name)
         
         # Add separations
         if contamination_data and contamination_data.get('separations'):
@@ -318,16 +336,27 @@ class ExposureTracker:
         # Contaminated targets table
         if self.all_contaminated_targets:
             target_times = [ct['time'].to_astropy() for ct in self.all_contaminated_targets]
-            target_names = [ct['name'] for ct in self.all_contaminated_targets]
+            target_names = []
+            for ct in self.all_contaminated_targets:
+                target_name = ct.get('name', 'UNKNOWN_TARGET')
+                if isinstance(target_name, (list, tuple, np.ndarray)):
+                    target_name = target_name[0] if len(target_name) > 0 else 'UNKNOWN_TARGET'
+                if isinstance(target_name, bytes):
+                    target_name = target_name.decode(errors='ignore')
+                target_names.append(str(target_name))
             target_coords = [ct['position'] for ct in self.all_contaminated_targets]
             target_alts = [coord.alt.degree for coord in target_coords]
             target_azs = [coord.az.degree for coord in target_coords]
             
-            contamination_table = Table([target_names,
+            contamination_table = Table([np.array(target_names, dtype='U64'),
                 target_times, target_alts, target_azs
             ], names=['Target_Name', 'Time', 'Target_Alt', 'Target_Az'])
-            
-            contamination_hdu = fits.BinTableHDU(contamination_table)
+            contamination_table = fits_sanitize_table(contamination_table)
+            try:
+                contamination_hdu = fits.BinTableHDU(contamination_table)
+            except Exception as e:
+                print(f"Error creating contamination HDU: {e}")
+                contamination_hdu = fits.BinTableHDU()
             contamination_hdu.header['EXTNAME'] = 'CONTAMINATED_TARGETS'
             contamination_hdu.header['EXPID'] = self.exposure_id
             contamination_hdu.header['NCONTAM'] = len(self.all_contaminated_targets)

@@ -61,38 +61,32 @@ class TargetTracker:
 
         print(f"Found {len(targets_up)} targets above {horizon_degrees}° horizon")
         
-        # Calculate positions for each time in exposure
+        rubin_at_first = observer.at(first_time)
+        topocentric_positions = [rubin_at_first.observe(target) for target in targets_up]
+        apparent_positions = [topo.apparent() for topo in topocentric_positions]
+        alt_az_data = [pos.altaz(temperature_C=12.0, pressure_mbar=750) for pos in apparent_positions]
+        alt_t, az_t, height_t = zip(*alt_az_data) if alt_az_data else ([], [], [])
+        skycoords = [
+            SkyCoord(
+                alt=alt.degrees*u.degree,
+                az=az.degrees*u.degree,
+                frame='altaz',
+                unit='deg',
+                obstime=first_time.to_astropy(),
+                location=self.rubin_location_geocentric
+            ) for alt, az in zip(alt_t, az_t)
+        ] if alt_t else []
+
+        static_entry = {
+            'targets_up': targets_up,
+            'names_up': names_up,
+            'apparent_positions': apparent_positions,
+            'skycoords': skycoords,
+            'alt_az_tuples': list(zip(alt_t, az_t)) if alt_t else []
+        }
+
         for ti in exposure_times:
-            rubin_at_time = observer.at(ti)
-            
-            # Calculate apparent positions for all up targets
-            topocentric_positions = [rubin_at_time.observe(target) for target in targets_up]
-            apparent_positions = [topo.apparent() for topo in topocentric_positions]
-            
-            # Get alt/az coordinates
-            alt_az_data = [pos.altaz(temperature_C=12.0, pressure_mbar=750) for pos in apparent_positions]
-            alt_t, az_t, height_t = zip(*alt_az_data) if alt_az_data else ([], [], [])
-            
-            # Create SkyCoord objects for easy manipulation
-            skycoords = [
-                SkyCoord(
-                    alt=alt.degrees*u.degree, 
-                    az=az.degrees*u.degree, 
-                    frame='altaz', 
-                    unit='deg', 
-                    obstime=ti.to_astropy(), 
-                    location=self.rubin_location_geocentric
-                ) for alt, az in zip(alt_t, az_t)
-            ] if alt_t else []
-            
-            # Store in cache
-            self.time_cache[ti] = {
-                'targets_up': targets_up,
-                'names_up': names_up,
-                'apparent_positions': apparent_positions,
-                'skycoords': skycoords,
-                'alt_az_tuples': list(zip(alt_t, az_t)) if alt_t else []
-            }
+            self.time_cache[ti] = static_entry
         
         calc_time = time.time() - calc_start
         print(f"Target calculation completed in {calc_time:.2f} seconds for {len(exposure_times)} time steps")

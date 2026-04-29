@@ -314,111 +314,17 @@ class SatelliteTracker:
                 satellites_up: list of satellites
                 satellite_periods: dict with satellite -> period info
         """
-        satellites_up = []
-        satellite_periods = {}
-        
-        for satellite in satellites:
-            try:
-                # Get rise/set events during the time period
-                times, events = satellite.find_events(
-                    observer, start_time, end_time, 
-                    altitude_degrees=altitude_degrees
-                )
-                
-                has_events = len(times) > 0
-                
-                # Check if satellite is sunlit at start time (if requested)
-                is_sunlit_start = True
-                if check_sunlit and eph is not None:
-                    is_sunlit_start = satellite.at(start_time).is_sunlit(eph)
-                
-                # Check altitude at start time
-                difference = satellite - observer
-                topocentric = difference.at(start_time)
-                alt, az, distance = topocentric.altaz()
-                above_horizon_start = alt.degrees > altitude_degrees
-                
-                # If satellite meets basic criteria, calculate detailed periods
-                if has_events and is_sunlit_start and above_horizon_start:
-                    satellites_up.append(satellite)
-                    
-                    if return_periods:
-                        # Calculate visible and sunlit periods
-                        visible_periods = []
-                        sunlit_periods = []
-                        
-                        # Process events to find visible periods
-                        if len(times) > 0:
-                            current_period_start = None
-                            
-                            for i, (time, event) in enumerate(zip(times, events)):
-                                if event == 0:  # Rise event
-                                    current_period_start = time
-                                elif event == 2:  # Set event
-                                    if current_period_start is not None:
-                                        visible_periods.append((current_period_start, time))
-                                    current_period_start = None
-                            
-                            # If satellite is still up at end of period
-                            if current_period_start is not None:
-                                visible_periods.append((current_period_start, end_time))
-                        
-                        # Check if satellite is above horizon at start of observation
-                        if above_horizon_start:
-                            if not visible_periods or visible_periods[0][0] > start_time:
-                                visible_periods.insert(0, (start_time, visible_periods[0][0] if visible_periods else end_time))
-                        
-                        # Find sunlit periods within visible periods
-                        if check_sunlit and eph is not None:
-                            for vis_start, vis_end in visible_periods:
-                                # Sample points to check sunlit status
-                                if satellite.at(vis_start).is_sunlit(eph) & satellite.at(vis_end).is_sunlit(eph):
-                                    sunlit_periods.append((vis_start, vis_end))
-                                    continue
-                                duration = (vis_end.utc_datetime() - vis_start.utc_datetime()).total_seconds()
-                                num_samples = max(10, int(duration / 60))  # Sample every minute minimum
-                                
-                                sample_times = [vis_start + (vis_end - vis_start) * i / num_samples 
-                                                for i in range(num_samples + 1)]
-                                
-                                sunlit_start = None
-                                for sample_time in sample_times:
-                                    is_sunlit = satellite.at(sample_time).is_sunlit(eph)
-                                    
-                                    if is_sunlit and sunlit_start is None:
-                                        sunlit_start = sample_time
-                                    elif not is_sunlit and sunlit_start is not None:
-                                        sunlit_periods.append((sunlit_start, sample_time))
-                                        sunlit_start = None
-                                
-                                # If still sunlit at end
-                                if sunlit_start is not None:
-                                    sunlit_periods.append((sunlit_start, vis_end))
-                        else:
-                            sunlit_periods = visible_periods
-                        
-                        satellite_periods[satellite] = {
-                            'visible_periods': visible_periods,
-                            'sunlit_periods': sunlit_periods,
-                            'combined_periods': sunlit_periods if check_sunlit else visible_periods,
-                            'total_visible_duration': sum([
-                                (end.utc_datetime() - start.utc_datetime()).total_seconds() 
-                                for start, end in visible_periods
-                            ]),
-                            'total_sunlit_duration': sum([
-                                (end.utc_datetime() - start.utc_datetime()).total_seconds() 
-                                for start, end in sunlit_periods
-                            ]) if sunlit_periods else 0
-                        }
-                        
-            except Exception as e:
-                print(f"Error checking satellite {satellite.name}: {e}")
-                continue
-        
-        if return_periods:
-            return satellites_up, satellite_periods
-        else:
-            return satellites_up
+        from ..utils.utils import find_satellites_up as _find_satellites_up
+        return _find_satellites_up(
+            satellites,
+            observer,
+            start_time,
+            end_time,
+            altitude_degrees=altitude_degrees,
+            check_sunlit=check_sunlit,
+            eph=eph,
+            return_periods=return_periods
+        )
     
     @staticmethod
     def find_satellites_up_simple(satellites, observer, check_time, altitude_degrees=30.0, check_sunlit=True, eph=None):
@@ -443,28 +349,15 @@ class SatelliteTracker:
         --------
         list : Satellites above horizon (and sunlit if requested)
         """
-        satellites_up = []
-        
-        for satellite in satellites:
-            try:
-                # Check altitude
-                difference = satellite - observer
-                topocentric = difference.at(check_time)
-                alt, az, distance = topocentric.altaz()
-                
-                if alt.degrees > altitude_degrees:
-                    # Check if sunlit (if requested)
-                    if check_sunlit and eph is not None:
-                        if satellite.at(check_time).is_sunlit(eph):
-                            satellites_up.append(satellite)
-                    else:
-                        satellites_up.append(satellite)
-                        
-            except Exception as e:
-                print(f"Error checking satellite {satellite.name}: {e}")
-                continue
-        
-        return satellites_up
+        from ..utils.utils import find_satellites_up_simple as _find_satellites_up_simple
+        return _find_satellites_up_simple(
+            satellites,
+            observer,
+            check_time,
+            altitude_degrees=altitude_degrees,
+            check_sunlit=check_sunlit,
+            eph=eph
+        )
     
     @staticmethod
     def get_satellite_count_info(satellites, observer, check_time, altitude_degrees=30.0, eph=None):
@@ -475,40 +368,14 @@ class SatelliteTracker:
         --------
         dict : Satellite counts and statistics
         """
-        total_satellites = len(satellites)
-        above_horizon = 0
-        sunlit = 0
-        above_horizon_and_sunlit = 0
-        
-        for satellite in satellites:
-            try:
-                # Check altitude
-                difference = satellite - observer
-                topocentric = difference.at(check_time)
-                alt, az, distance = topocentric.altaz()
-                
-                is_above_horizon = alt.degrees > altitude_degrees
-                is_sunlit = satellite.at(check_time).is_sunlit(eph) if eph else False
-                
-                if is_above_horizon:
-                    above_horizon += 1
-                    
-                if is_sunlit:
-                    sunlit += 1
-                    
-                if is_above_horizon and is_sunlit:
-                    above_horizon_and_sunlit += 1
-                    
-            except Exception as e:
-                continue
-        
-        return {
-            'total': total_satellites,
-            'above_horizon': above_horizon,
-            'sunlit': sunlit,
-            'above_horizon_and_sunlit': above_horizon_and_sunlit,
-            'time': check_time
-        }
+        from ..utils.utils import get_satellite_count_info as _get_satellite_count_info
+        return _get_satellite_count_info(
+            satellites,
+            observer,
+            check_time,
+            altitude_degrees=altitude_degrees,
+            eph=eph
+        )
     
     @staticmethod
     def is_time_in_periods(check_time, periods):
@@ -526,13 +393,5 @@ class SatelliteTracker:
         --------
         bool : True if time falls within any period
         """
-        check_datetime = check_time.utc_datetime()
-        
-        for start_time, end_time in periods:
-            start_datetime = start_time.utc_datetime()
-            end_datetime = end_time.utc_datetime()
-            
-            if start_datetime <= check_datetime <= end_datetime:
-                return True
-        
-        return False
+        from ..utils.utils import is_time_in_periods as _is_time_in_periods
+        return _is_time_in_periods(check_time, periods)

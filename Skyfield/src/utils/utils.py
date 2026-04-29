@@ -4,13 +4,17 @@ import datetime as dt
 from pytz import timezone
 from astropy.io import fits
 from astropy.table import Table
+from astropy import units as u
 from astropy.coordinates import SkyCoord, EarthLocation
 import skyfield as sf
 from skyfield.api import load, wgs84, EarthSatellite, N, W,S,E, Star, Angle
 from skyfield import almanac
 from astropy.table import Table, Column
 import numpy as np
+import pandas as pd
+from astropy.time import Time, TimeDelta
 
+pathToFiles = '/data/a.saricaoglu/repo/RubinsForge/Skyfield/files'
 
 class StreamToLogger:
     def __init__(self, logger, log_level):
@@ -175,6 +179,91 @@ def get_time_array(local_start, local_end, eph, rubin_obs, zone, twilight_extens
 
     return day_array
 
+def read_targets_file(targets_file, verbose=True):
+    """
+    Read target star coordinates from a CSV file.
+
+    Args:
+        targets_file (str): Path to the CSV file containing target coordinates.
+        region (str, optional): Region name to select specific targets. Defaults to None.
+        verbose (bool, optional): Whether to print verbose output. Defaults to True.
+
+    Returns:
+        tuple: A tuple containing the targets dictionary and the coordinates SkyCoord object.
+    """
+    # Read the CSV file and examine its structure
+    df = pd.read_csv(targets_file)
+
+    if verbose:
+        print("CSV file structure:")
+        print(f"Shape: {df.shape}")
+        print(f"Columns: {list(df.columns)}")
+        print(f"\nFirst few rows:")
+        print(df.head())
+        print(f"\nData types:")
+        print(df.dtypes)
+
+    # Create targets dictionary with all requested fields
+    targets = {}
+
+    for index, row in df.iterrows():
+        # Create SkyCoord object for each target
+        coord = SkyCoord(ra=row['ra'] * u.degree, dec=row['dec'] * u.degree, frame='icrs')
+        
+        # Create target ID (you can modify this naming scheme)
+        target_id = f"target_{index:04d}"
+        
+        # Build the target dictionary with all requested fields
+        targets[target_id] = {
+            'ra': row['ra'],  # degrees
+            'dec': row['dec'],  # degrees
+            'coord': coord,  # SkyCoord object for convenience
+            
+            # Initialize other fields - update these based on your CSV columns
+            'name': row.get('name',None),  # Use CSV value if exists, else default name
+            'flag': row.get('flag', None),
+            'n_img': row.get('n_img', None),  # Use CSV value if exists, else None
+            'image_conf': row.get('image_conf', None),
+            'lens_type': row.get('lens_type', None),
+            'source_type': row.get('source_type', None),
+            'mag': row.get('mag', None),
+            'Dmag': row.get('Dmag', None), 
+            'value': row.get('value', None),
+            'dvalue_min': row.get('dvalue_min', None),
+            'dvalue_max': row.get('dvalue_max', None),
+            
+        }
+
+    # Also create a SkyCoord array for convenience (as in original code)
+    
+    print(f"\nCreated targets dictionary with {len(targets)} targets")
+    return targets
+
+def get_targets_as_coordinates(pathToTargets, region=None):
+    """
+    Get target coordinates from a FITS file.
+
+    Args:
+        pathToTargets (str): Path to the FITS file containing target coordinates.
+
+
+    Returns:        SkyCoord: A SkyCoord object containing the target coordinates.  
+    """
+    with fits.open(pathToTargets) as hdul:
+        hdul.info()
+        
+        if region is not None:
+            data = hdul[f'{region}'].data
+        else:
+            data = hdul[f'In_LSST_footprint'].data
+
+        ra_i = data['RA']
+        dec_i = data['DEC']
+
+    coordinates = SkyCoord(ra=ra_i*u.degree, dec=dec_i*u.degree, frame='icrs')
+    print(f"Loaded {len(coordinates)} target coordinates from {pathToTargets}")
+    return coordinates
+
 def get_targets_as_stars(pathToTargets, region=None):
     """
     Get target stars from a FITS file.
@@ -207,6 +296,174 @@ def get_targets_as_stars(pathToTargets, region=None):
 
     return targets, names
 
+def save_twilight_windows_numpy(local_start, local_end, twilight_events, filename_base):
+    """Save twilight windows to numpy format"""
+    
+    # Extract MJD times for efficient storage
+    twilight_mjds = []
+    twilight_types = []
+    
+    for event_group in twilight_events:
+        for event in event_group:
+            twilight_types.append(event[0])  # event type
+            twilight_mjds.append(event[2])   # MJD time
+    
+    # Save as structured array
+    twilight_array = np.array(list(zip(twilight_types, twilight_mjds)), 
+                             dtype=[('type', 'U20'), ('mjd', 'f8')])
+    
+    np.savez_compressed(f"{filename_base}.npz", 
+                       twilight_data=twilight_array,
+                       metadata=np.array([local_start, local_end]))
+    
+    print(f"Twilight data saved to {filename_base}.npz")
+
+def find_twilight_window_visit_overlaps(twilight_windows, visit_exposure_groups, extension_time=1.5, verbose=True):
+    """Find overlaps between twilight windows and visit/exposure groups"""
+    counter = 0
+    for visit in visit_exposure_groups.values():
+
+        visit['twilight_overlap'] = False
+        visit_mjd = Time(visit['mjd'], format='mjd')
+        visit_chile_time = visit['chile_time']
+        twilight_extension = extension_time * u.hr
+
+        # Check if visit falls within any twilight window
+        for window in windows:
+            start_mjd, end_mjd = window
+            start_mjd = Time(start_mjd, format='mjd')
+            end_mjd = Time(end_mjd, format='mjd')
+            if start_mjd - twilight_extension <= visit_mjd <= end_mjd + twilight_extension:
+                counter += 1
+                visit['twilight_overlap'] = True
+                if verbose:
+                    print(f"Visit {visit['visit_id']} has a visit at Chile Time {visit_chile_time} " +
+                    f"which falls within twilight window {Time(start_mjd, format='mjd').to_datetime(timezone=chile_tz)} to {Time(end_mjd, format='mjd').to_datetime(timezone=chile_tz)}")
+                break  # No need to check other windows for this visit
+    print(f"Total twilight-overlapping visits on all days: {counter}")
+
+    return visit_exposure_groups
+
+def load_twilight_windows(filename, verbose=True):
+    """Load twilight windows from numpy format"""
+    data = np.load(filename)
+    twilight_data = data['twilight_data']
+
+    print(f"Loaded {len(twilight_data)} twilight events")
+    windows = []
+    window = []
+    for i, event in enumerate(twilight_data):
+        event_type = event['type']
+        event_mjd = event['mjd']
+        if len(window) != 2:
+            window.append(event_mjd)
+        if len(window) == 2:
+            windows.append(window)
+            window = []
+        if verbose:    
+            print(f"  {i+1}: {event_type} at MJD {event_mjd:.6f}")
+
+    return windows
+
+def create_twilight_windows(obs_start, obs_end):
+
+    ts = load.timescale()
+    zone_stl = timezone('Etc/GMT-6')
+    zone = timezone('Chile/Continental')
+    utc = timezone('UTC')
+    local_start = ts.from_datetime(zone.localize(obs_start).astimezone(utc))
+    local_end = ts.from_datetime(zone.localize(obs_end).astimezone(utc))
+    eph = load('de421.bsp')
+    earth = eph['earth']
+    sun = eph['sun']
+    rubin_obs = wgs84.latlon(-30.244633,  -70.749417)
+
+    today = local_start
+    next_day = local_end
+    f = sf.almanac.dark_twilight_day(eph, rubin_obs)
+    times, events = almanac.find_discrete(today, next_day, f)
+    previous_e = f(local_start).item()
+    twilight_events = []
+    for t, e in zip(times, events):
+        tstr = str(t.astimezone(zone))[:16]
+        mjd_time = Time(t.ut1, format='jd').mjd
+        twilight=[]
+        if previous_e < e:
+            print(f'{tstr} mjd {mjd_time} {almanac.TWILIGHTS[e]} starts')
+            if str(almanac.TWILIGHTS[e]) == 'Day':
+                day_start = t # Twilight ends for morning
+                twilight.append(('am twilight end', tstr,mjd_time))
+            if str(almanac.TWILIGHTS[e]) == 'Astronomical twilight':
+                night_end = t # Twilight starts for morning
+                twilight.append(('am twilight start', tstr,mjd_time))
+        else:
+            print(f'{tstr} mjd {mjd_time} {almanac.TWILIGHTS[previous_e]} ends')
+            if (almanac.TWILIGHTS[previous_e]) == 'Day':
+                day_end = t # Twilight starts for evening
+                twilight.append(('pm twilight start', tstr,mjd_time))
+            if (almanac.TWILIGHTS[previous_e]) == 'Astronomical twilight':
+                night_start = t # Twilight ends for evening
+                twilight.append(('pm twilight end', tstr,mjd_time))
+        if twilight:
+            twilight_events.append(twilight)
+        previous_e = e
+
+    # Save the data
+    numpy_filename = f"{pathToFiles}/twilight_windows/{local_start.astimezone(zone).strftime('%Y%m%dT%H%M')}_to_{local_end.astimezone(zone).strftime('%Y%m%dT%H%M')}"
+    save_twilight_windows_numpy(local_start, local_end, twilight_events, numpy_filename)
+
+    return f'{numpy_filename}.npz'
+
+def create_exposure_windows(visits_in_twilight):
+    # Prepare data for FITS table
+    fits_rows = []
+    local_start = Time(visits_in_twilight[0]['mjd'], format='mjd').to_datetime(timezone=chile_tz)
+    local_end = Time(visits_in_twilight[-1]['mjd'], format='mjd').to_datetime(timezone=chile_tz)
+    for visit in visits_in_twilight:
+        for target in visit['targets']:
+            fits_rows.append({
+                'visit_id': visit['visit_id'],
+                'mjd': visit['mjd'],
+                'chile_time': visit['chile_time'].strftime('%Y-%m-%d %H:%M:%S'),
+                'exposure_time': visit['exposure_time'],
+                'num_exposures': visit['num_exposures'],
+                'filter': visit['filter'],
+                'field_ra': visit['field_ra'],
+                'field_dec': visit['field_dec'],
+                'target_id': target['target_id'],
+                'target_ra': target['target_ra'],
+                'target_dec': target['target_dec'],
+                'five_sigma_depth': target['five_sigma_depth'],
+                'seeing': target['seeing'],
+                'sky_brightness': target['sky_brightness']
+            })
+
+    fits_table = Table(rows=fits_rows)
+    cols = [
+        fits.Column(name='visit_id', format='K', array=fits_table['visit_id']),
+        fits.Column(name='mjd', format='D', array=fits_table['mjd']),
+        fits.Column(name='chile_time', format='20A', array=fits_table['chile_time']),
+        fits.Column(name='exposure_time', format='E', array=fits_table['exposure_time']),
+        fits.Column(name='num_exposures', format='I',   array=fits_table['num_exposures']), 
+        fits.Column(name='filter', format='1A', array=fits_table['filter']),
+        fits.Column(name='field_ra', format='D', array=fits_table['field_ra']),
+        fits.Column(name='field_dec', format='D', array=fits_table['field_dec']),
+        fits.Column(name='target_id', format='20A', array=fits_table['target_id']),
+        fits.Column(name='target_ra', format='D', array=fits_table['target_ra']),
+        fits.Column(name='target_dec', format='D', array=fits_table['target_dec']),
+        fits.Column(name='five_sigma_depth', format='E', array=fits_table['five_sigma_depth']),
+        fits.Column(name='seeing', format='E', array=fits_table['seeing']),
+        fits.Column(name='sky_brightness', format='E', array=fits_table['sky_brightness'])
+    ]
+    hdu = fits.BinTableHDU.from_columns(cols)
+    # Write to FITS file
+    fits_filename = f"{pathToFiles}/twilight_visits/{local_start.strftime('%Y%m%d')}_to_{local_end.strftime('%Y%m%d')}.fits"
+    hdu.writeto(fits_filename, overwrite=True)
+    print(f"Written {len(fits_rows)} rows to {fits_filename}")
+    print(f"FITS columns: {[col.name for col in hdu.columns]}")
+
+    return fits_filename
+
 def get_exposure_windows(exposures_file):
     """
     Get exposure windows from a FITS file.
@@ -229,7 +486,7 @@ def get_exposure_windows(exposures_file):
         data = hdul[1].data
         print(len(data['visit_id']))
         print(len(np.unique(data['visit_id'])))
-        
+
         exposure_dict = {}
         for visit in np.unique(data['visit_id']):
             visit_mask = data['visit_id'] == visit
@@ -261,7 +518,62 @@ def get_exposure_windows(exposures_file):
 
             # print(f"\nVisit ID: {visit}")
         return exposure_dict
+
+def get_targets_by_visit_exposure(bundle_list, targets_dict, start_mjd, end_mjd):
+    """Group targets by visit ID and exposure parameters"""
     
+    visit_groups = {}
+    target_ids = list(targets_dict.keys())
+
+    # Process each target's observations
+    for i, target_observations in enumerate(bundle_list[0].metric_values):
+                    # Filter observations for the date range
+        range_mask = (target_observations['observationStartMJD'] >= start_mjd) & \
+                        (target_observations['observationStartMJD'] <= end_mjd)
+            
+        range_observations = target_observations[range_mask]
+        if i >= len(target_ids):
+            break
+            
+        target_id = target_ids[i]
+
+        for obs in range_observations:
+            visit_id = obs['observationId']
+            exposure_time = obs['visitExposureTime']
+            num_exposures = obs['numExposures']
+            mjd = obs['observationStartMJD']
+            
+            # Create unique key for visit/exposure combination
+            visit_key = f"{visit_id}"
+            obs_time = Time(obs['observationStartMJD'], format='mjd')
+            utc_datetime = obs_time.to_datetime(timezone=dt.timezone.utc)
+            chile_datetime = utc_datetime.astimezone(chile_tz)
+            if visit_key not in visit_groups:
+                visit_groups[visit_key] = {
+                    'visit_id': visit_id,
+                    'mjd': mjd,
+                    'chile_time': chile_datetime,
+                    'exposure_time': exposure_time,
+                    'num_exposures': num_exposures,
+                    'filter': obs['filter'],
+                    'field_ra': obs['fieldRA'],
+                    'field_dec': obs['fieldDec'],
+                    'targets': []
+                }
+            
+            # Add target to this visit/exposure group
+            visit_groups[visit_key]['targets'].append({
+                'target_id': target_id,
+                'target_ra': targets_dict[target_id]['ra'],
+                'target_dec': targets_dict[target_id]['dec'],
+                'five_sigma_depth': obs['fiveSigmaDepth'],
+                'seeing': obs['seeingFwhmEff'],
+                'sky_brightness': obs['skyBrightness']
+            })
+    
+    return visit_groups    
+
+
 def exposure_targets_to_stars(exposures_file):
     import numpy as np
     from astropy.time import Time, TimeDelta
