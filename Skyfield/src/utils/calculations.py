@@ -19,6 +19,7 @@ import random
 from ..satellites import starlink_sat
 import lumos.plot
 import lumos.brdf.library
+import lumos.conversions
 
 logger = logging.getLogger(__name__)
 
@@ -86,59 +87,59 @@ def point_brightness_calculation(rubinobs_astr, ti, sun, al, az, height):
         return None 
 
 
-def trail_event(starlink, rubin_obs, ti, sat_t, sat_al, sat_az, sat_hght):
-    start = time.time()
-    max_duration = 60
-    status = False
-    while (((time.time() - start) % 60) < max_duration) & (status == False):
-        difference = starlink - rubin_obs
-        topocentric = difference.at(ti)
-        # satra, satdec, distance = topocentric.radec() # ICRF ("J2000")
-        satal, sataz, sat_height = topocentric.altaz()
-        if (sat_height.to(u.km).value < 2000):
-            # sat_ra.append(satra.hours)
-            # sat_dec.append(satdec.degrees)
-            # sat_dist.append(distance.to(u.m).value)
-            # satal, sataz, sat_height = topocentric.altaz()
-            sat_al.append(satal.degrees)
-            sat_az.append(sataz.degrees)
-            sat_hght.append(sat_height.to(u.m).value)
+# def trail_event(starlink, rubin_obs, ti, sat_t, sat_al, sat_az, sat_hght):
+#     start = time.time()
+#     max_duration = 60
+#     status = False
+#     while (((time.time() - start) % 60) < max_duration) & (status == False):
+#         difference = starlink - rubin_obs
+#         topocentric = difference.at(ti)
+#         # satra, satdec, distance = topocentric.radec() # ICRF ("J2000")
+#         satal, sataz, sat_height = topocentric.altaz()
+#         if (sat_height.to(u.km).value < 2000):
+#             # sat_ra.append(satra.hours)
+#             # sat_dec.append(satdec.degrees)
+#             # sat_dist.append(distance.to(u.m).value)
+#             # satal, sataz, sat_height = topocentric.altaz()
+#             sat_al.append(satal.degrees)
+#             sat_az.append(sataz.degrees)
+#             sat_hght.append(sat_height.to(u.m).value)
 
-            # diff = ti.astimezone(zone) - midnight.astimezone(zone)
-            # sat_t.append(diff.total_seconds() / 3600)
-            sat_t.append(ti)
-            status = True
-            return topocentric
-        else:
-            status = True
-            return None
+#             # diff = ti.astimezone(zone) - midnight.astimezone(zone)
+#             # sat_t.append(diff.total_seconds() / 3600)
+#             sat_t.append(ti)
+#             status = True
+#             return topocentric
+#         else:
+#             status = True
+#             return None
 
-def point_trail_event(starlink, rubin_obs, ti, return_type=None):
-    start = time.time()
-    max_duration = 60
-    status = False
-    while (((time.time() - start) % 60) < max_duration) & (status == False):
-        difference = starlink - rubin_obs
-        topocentric = difference.at(ti)
-        # satra, satdec, distance = topocentric.radec() # ICRF ("J2000")
-        satal, sataz, sat_height = topocentric.altaz()
-        if (sat_height.to(u.km).value < 2000):
-            # sat_ra.append(satra.hours)
-            # sat_dec.append(satdec.degrees)
-            # sat_dist.append(distance.to(u.m).value)
-            # satal, sataz, sat_height = topocentric.altaz()
-            # al = satal.degrees
-            # az = sataz.degrees
-            # height = sat_height.to(u.m).value
+# def point_trail_event(starlink, rubin_obs, ti, return_type=None):
+#     start = time.time()
+#     max_duration = 60
+#     status = False
+#     while (((time.time() - start) % 60) < max_duration) & (status == False):
+#         difference = starlink - rubin_obs
+#         topocentric = difference.at(ti)
+#         # satra, satdec, distance = topocentric.radec() # ICRF ("J2000")
+#         satal, sataz, sat_height = topocentric.altaz()
+#         if (sat_height.to(u.km).value < 2000):
+#             # sat_ra.append(satra.hours)
+#             # sat_dec.append(satdec.degrees)
+#             # sat_dist.append(distance.to(u.m).value)
+#             # satal, sataz, sat_height = topocentric.altaz()
+#             # al = satal.degrees
+#             # az = sataz.degrees
+#             # height = sat_height.to(u.m).value
 
-            # # diff = ti.astimezone(zone) - midnight.astimezone(zone)
-            # # sat_t.append(diff.total_seconds() / 3600)
-            # t=ti
-            status = True
-            return topocentric if return_type is None else (satal.degrees, sataz.degrees)
-        else:
-            status = True
-            return None
+#             # # diff = ti.astimezone(zone) - midnight.astimezone(zone)
+#             # # sat_t.append(diff.total_seconds() / 3600)
+#             # t=ti
+#             status = True
+#             return topocentric if return_type is None else (satal.degrees, sataz.degrees)
+#         else:
+#             status = True
+#             return None
         
 def target_check(target_apr, target_altaz, topocentric, separation, treshold):
     start = time.time()
@@ -163,7 +164,7 @@ def target_check(target_apr, target_altaz, topocentric, separation, treshold):
             return False
 
 
-def filter_targets(targets_altaz, topocentric, topocentric_pre, padding_treshold_arcsec = 30.0):
+def filter_targets(targets_altaz, topocentric, topocentric_pre, padding_treshold_arcsec = 67.5):
     """
     Vectorized target filtering for better performance
 
@@ -186,11 +187,18 @@ def filter_targets(targets_altaz, topocentric, topocentric_pre, padding_treshold
     pre_alt, pre_az = pre_alt.degrees, pre_az.degrees
     alt, az = alt.degrees, az.degrees
 
+    if max(pre_alt, alt) > 80.0:
+        logger.info("Satellite is above 80 degrees altitude, including all targets.")
+        return np.ones(
+            len(targets_altaz),
+            dtype=bool,
+        )
+        
     max_alt = max(pre_alt, alt)
     min_alt = min(pre_alt, alt)
 
     # Apply padding to the altitude bounds
-    padding_deg = padding_treshold_arcsec / 3600.0  # Convert arcseconds to degrees
+    padding_deg = (padding_treshold_arcsec + 2) / 3600.0  # Convert arcseconds to degrees
     max_alt += padding_deg
     min_alt -= padding_deg
 
@@ -218,77 +226,380 @@ def filter_targets(targets_altaz, topocentric, topocentric_pre, padding_treshold
     # Target is included if either current or previous position is in box
     return current_in_box
 
-def check_visit_region(visit_skycoord, topocentric, topocentric_pre):
-    """
-    Check if a satellite's path intersects the visit region
+# Legacy version of filter_targets for reference
+# def check_visit_region(visit_skycoord, topocentric, topocentric_pre):
+#     """
+#     Check if a satellite's path intersects the visit region
 
-    Parameters:
-    -----------
-    visit : dict
-        Visit information containing skycoord object
-    topocentric : Skyfield position
-        Current satellite position
-    topocentric_pre : Skyfield position
-        Previous satellite position
+#     Parameters:
+#     -----------
+#     visit : dict
+#         Visit information containing skycoord object
+#     topocentric : Skyfield position
+#         Current satellite position
+#     topocentric_pre : Skyfield position
+#         Previous satellite position
 
-    Returns:
-    --------
-    bool : True if satellite path intersects visit region, else False
+#     Returns:
+#     --------
+#     bool : True if satellite path intersects visit region, else False
+#     """
+#     radius = 1.78  # degrees
+
+#     try:
+#         visit_alt, visit_az, _ = visit_skycoord.altaz()
+#         pre_alt, pre_az, _ = topocentric_pre.altaz()
+#         alt, az, _ = topocentric.altaz()
+
+#         visit_alt = visit_alt.degrees
+#         visit_az = visit_az.degrees
+#         pre_alt = pre_alt.degrees
+#         pre_az = pre_az.degrees
+#         alt = alt.degrees
+#         az = az.degrees
+
+#         def wrap_delta_az(delta):
+#             return ((delta + 180.0) % 360.0) - 180.0
+
+#         cos_alt0 = np.cos(np.radians(visit_alt))
+
+#         x0 = wrap_delta_az(pre_az - visit_az) * cos_alt0
+#         y0 = pre_alt - visit_alt
+#         x1 = wrap_delta_az(az - visit_az) * cos_alt0
+#         y1 = alt - visit_alt
+
+#         # Fast endpoint acceptance
+#         if (x0 * x0 + y0 * y0) <= radius * radius:
+#             return True
+#         if (x1 * x1 + y1 * y1) <= radius * radius:
+#             return True
+
+#         dx = x1 - x0
+#         dy = y1 - y0
+
+#         a = dx * dx + dy * dy
+#         if a == 0.0:
+#             return False
+
+#         b = 2.0 * (x0 * dx + y0 * dy)
+#         c = x0 * x0 + y0 * y0 - radius * radius
+
+#         discriminant = b * b - 4.0 * a * c
+#         if discriminant < 0.0:
+#             return False
+
+#         sqrt_disc = np.sqrt(discriminant)
+#         t1 = (-b - sqrt_disc) / (2.0 * a)
+#         t2 = (-b + sqrt_disc) / (2.0 * a)
+
+#         return (0.0 <= t1 <= 1.0) or (0.0 <= t2 <= 1.0)
+
+#     except Exception as e:
+#         logger.info("Visit-region prefilter failed; "
+#             "keeping satellite for full contamination check."
+#         )
+#         return True
+def check_visit_region(
+    visit_center_previous,
+    visit_center_current,
+    topocentric_previous,
+    topocentric_current,
+    radius=1.78,
+):
     """
-    radius = 1.75  # degrees
+    Check whether a satellite segment intersects the moving
+    visit region.
+
+    The visit center and satellite are both evaluated at the
+    two segment endpoints. The test is performed using their
+    relative motion in a local Alt/Az tangent plane.
+
+    Parameters
+    ----------
+    visit_center_previous : Skyfield apparent position
+        Apparent visit-center position at t0.
+
+    visit_center_current : Skyfield apparent position
+        Apparent visit-center position at t1.
+
+    topocentric_previous : Skyfield position
+        Satellite topocentric position at t0.
+
+    topocentric_current : Skyfield position
+        Satellite topocentric position at t1.
+
+    radius : float
+        Visit-region radius in degrees.
+
+    Returns
+    -------
+    bool
+        True if the relative-motion segment intersects the
+        visit-region circle.
+    """
 
     try:
-        visit_alt, visit_az, _ = visit_skycoord.altaz()
-        pre_alt, pre_az, _ = topocentric_pre.altaz()
-        alt, az, _ = topocentric.altaz()
 
-        visit_alt = visit_alt.degrees
-        visit_az = visit_az.degrees
-        pre_alt = pre_alt.degrees
-        pre_az = pre_az.degrees
-        alt = alt.degrees
-        az = az.degrees
+        # --------------------------------------------------
+        # Visit-center endpoint coordinates
+        # --------------------------------------------------
+
+        visit_alt_prev, visit_az_prev, _ = (
+            visit_center_previous.altaz()
+        )
+
+        visit_alt_curr, visit_az_curr, _ = (
+            visit_center_current.altaz()
+        )
+
+        visit_alt_prev = visit_alt_prev.degrees
+        visit_az_prev = visit_az_prev.degrees
+
+        visit_alt_curr = visit_alt_curr.degrees
+        visit_az_curr = visit_az_curr.degrees
+
+        # --------------------------------------------------
+        # Satellite endpoint coordinates
+        # --------------------------------------------------
+
+        sat_alt_prev, sat_az_prev, _ = (
+            topocentric_previous.altaz()
+        )
+
+        sat_alt_curr, sat_az_curr, _ = (
+            topocentric_current.altaz()
+        )
+
+        sat_alt_prev = sat_alt_prev.degrees
+        sat_az_prev = sat_az_prev.degrees
+
+        sat_alt_curr = sat_alt_curr.degrees
+        sat_az_curr = sat_az_curr.degrees
+
+        if max(
+            visit_alt_prev,
+            visit_alt_curr,
+            sat_alt_prev,
+            sat_alt_curr,
+        ) > 80.0:
+
+            logger.info(
+                "Near-zenith visit/satellite geometry; "
+                "keeping satellite for full contamination check."
+            )
+
+            return True
+        # --------------------------------------------------
+        # Relative-motion tangent plane
+        # --------------------------------------------------
 
         def wrap_delta_az(delta):
-            return ((delta + 180.0) % 360.0) - 180.0
+            return (
+                (delta + 180.0) % 360.0
+            ) - 180.0
 
-        cos_alt0 = np.cos(np.radians(visit_alt))
+        visit_alt_mid = 0.5 * (
+            visit_alt_prev
+            + visit_alt_curr
+        )
 
-        x0 = wrap_delta_az(pre_az - visit_az) * cos_alt0
-        y0 = pre_alt - visit_alt
-        x1 = wrap_delta_az(az - visit_az) * cos_alt0
-        y1 = alt - visit_alt
+        cos_alt0 = np.cos(
+            np.radians(visit_alt_mid)
+        )
 
-        # Fast endpoint acceptance
-        if (x0 * x0 + y0 * y0) <= radius * radius:
-            return True
-        if (x1 * x1 + y1 * y1) <= radius * radius:
-            return True
+        # Satellite relative to visit center at t0
+        x0 = (
+            wrap_delta_az(
+                sat_az_prev
+                - visit_az_prev
+            )
+            * cos_alt0
+        )
+
+        y0 = (
+            sat_alt_prev
+            - visit_alt_prev
+        )
+
+        # Satellite relative to visit center at t1
+        x1 = (
+            wrap_delta_az(
+                sat_az_curr
+                - visit_az_curr
+            )
+            * cos_alt0
+        )
+
+        y1 = (
+            sat_alt_curr
+            - visit_alt_curr
+        )
+
+        # --------------------------------------------------
+        # Closest point on relative-motion segment
+        # --------------------------------------------------
 
         dx = x1 - x0
         dy = y1 - y0
 
-        a = dx * dx + dy * dy
+        a = dx**2 + dy**2
+
         if a == 0.0:
-            return False
+            min_dist = np.hypot(x0, y0)
 
-        b = 2.0 * (x0 * dx + y0 * dy)
-        c = x0 * x0 + y0 * y0 - radius * radius
+        else:
+            t_closest = -(
+                x0 * dx
+                + y0 * dy
+            ) / a
 
-        discriminant = b * b - 4.0 * a * c
-        if discriminant < 0.0:
-            return False
+            t_closest = np.clip(
+                t_closest,
+                0.0,
+                1.0,
+            )
 
-        sqrt_disc = np.sqrt(discriminant)
-        t1 = (-b - sqrt_disc) / (2.0 * a)
-        t2 = (-b + sqrt_disc) / (2.0 * a)
+            x_closest = (
+                x0
+                + t_closest * dx
+            )
 
-        return (0.0 <= t1 <= 1.0) or (0.0 <= t2 <= 1.0)
+            y_closest = (
+                y0
+                + t_closest * dy
+            )
 
-    except Exception as e:
-        logger.exception("Error in check_visit_region")
-        return False
+            min_dist = np.hypot(
+                x_closest,
+                y_closest,
+            )
 
+        return min_dist <= radius
+
+    except Exception:
+        logger.exception(
+            "Visit-region prefilter failed; "
+            "keeping satellite for full contamination check."
+        )
+
+        # Fail open. This is only an optimization.
+        return True
+
+# Legacy version of check_visit_region for reference
+# def satellite_period_crosses_visit(
+#     starlink,
+#     rubin_obs,
+#     period_start,
+#     period_end,
+#     exp,
+#     visit_region,
+# ):
+
+#     times = [period_start]
+
+#     times.extend(
+#         ti for ti in exp
+#         if period_start < ti < period_end
+#     )
+
+#     times.append(period_end)
+
+#     times = sorted(
+#         set(times),
+#         key=lambda t: t.tt,
+#     )
+
+#     positions = [
+#         (starlink - rubin_obs).at(ti)
+#         for ti in times
+#     ]
+
+#     for p0, p1 in zip(positions[:-1], positions[1:]):
+
+#         if check_visit_region(
+#             visit_region,
+#             p1,
+#             p0,
+#         ):
+#             return True
+
+#     return False
+
+def satellite_period_crosses_visit(
+    starlink,
+    rubin_obs,
+    rubinobs_astr,
+    period_start,
+    period_end,
+    exp,
+    visit_center_as_star,
+):
+
+    # --------------------------------------------------
+    # Build segment boundaries
+    # --------------------------------------------------
+
+    times = [period_start]
+
+    times.extend(
+        ti
+        for ti in exp
+        if period_start < ti < period_end
+    )
+
+    times.append(period_end)
+
+    times = sorted(
+        set(times),
+        key=lambda t: t.tt,
+    )
+
+    # --------------------------------------------------
+    # Satellite positions
+    # --------------------------------------------------
+
+    satellite_positions = [
+        (starlink - rubin_obs).at(ti)
+        for ti in times
+    ]
+
+    # --------------------------------------------------
+    # Visit-center positions at exactly the same times
+    # --------------------------------------------------
+
+    visit_positions = [
+        rubinobs_astr
+        .at(ti)
+        .observe(visit_center_as_star)
+        .apparent()
+        for ti in times
+    ]
+
+    # --------------------------------------------------
+    # Check every interval using relative motion
+    # --------------------------------------------------
+
+    for (
+        sat_prev,
+        sat_curr,
+        visit_prev,
+        visit_curr,
+    ) in zip(
+        satellite_positions[:-1],
+        satellite_positions[1:],
+        visit_positions[:-1],
+        visit_positions[1:],
+    ):
+
+        if check_visit_region(
+            visit_prev,
+            visit_curr,
+            sat_prev,
+            sat_curr,
+        ):
+            return True
+
+    return False
 
 # def calculated_target_check(current_targets,topocentric,topocentric_pre, separation, treshold):
 
@@ -352,207 +663,308 @@ def check_visit_region(visit_skycoord, topocentric, topocentric_pre):
 
 #     return len(contaminated) > 0, contaminated, contaminated_names
 
-def calculated_target_check(current_targets,topocentric,topocentric_pre, separation, treshold):
+def calculated_target_check(
+    current_targets,
+    previous_targets,
+    topocentric,
+    topocentric_pre,
+    threshold,
+):
+
     contaminated = []
     contaminated_names = []
 
-    targets_boxed_mask = filter_targets(current_targets['skycoords'], topocentric, topocentric_pre)
-    #print(f'Number of targets in box: {np.sum(targets_boxed_mask)}')
-    if np.sum(targets_boxed_mask) == 0:
-        return False, contaminated, contaminated_names
+    # Conservative coarse filtering using both endpoint target positions
+    current_mask = filter_targets(
+        current_targets["skycoords"],
+        topocentric,
+        topocentric_pre,
+        threshold+20, #padding corresponding to maximum target motion over the segment. For roughly one second, apparent sidereal motion is of order \(15''\) in angle
+    )
 
-    # Convert to numpy array for boolean indexing
-    names = np.array(current_targets['names_up'], dtype=object)
-    visible_targets_array = np.array(current_targets['apparent_positions'], dtype=object)
-    visible_targets_altaz_array = np.array(current_targets['skycoords'], dtype=object)
+    previous_mask = filter_targets(
+        previous_targets["skycoords"],
+        topocentric,
+        topocentric_pre,
+        threshold+20,
+    )
 
+    targets_boxed_mask = current_mask | previous_mask
 
-    # Now you can use boolean indexing
-    logger.debug('filtered visible targets : %s out of %s', len(visible_targets_array[targets_boxed_mask]), len(visible_targets_array))
+    if not np.any(targets_boxed_mask):
+        return False, [], [], [], [], []
 
-    # Use the filtered arrays for processing
-    visible_targets_appr = visible_targets_array[targets_boxed_mask].tolist()
-    visible_targets_altaz = visible_targets_altaz_array[targets_boxed_mask].tolist()
+    # -------------------------------------------------------
+    # Keep all filtered arrays aligned
+    # -------------------------------------------------------
+
+    names = np.asarray(
+        current_targets["names"],
+        dtype=object,
+    )
+
+    current_altaz_array = np.asarray(
+        current_targets["skycoords"],
+        dtype=object,
+    )
+
+    previous_altaz_array = np.asarray(
+        previous_targets["skycoords"],
+        dtype=object,
+    )
+
+    current_apparent_array = np.asarray(
+        current_targets["apparent_positions"],
+        dtype=object,
+    )
+
     names_up = names[targets_boxed_mask].tolist()
+
+    assert len(current_targets["names"]) == len(previous_targets["names"])
+    assert current_targets["names"] == previous_targets["names"]
+
+    current_altaz = current_altaz_array[
+        targets_boxed_mask
+    ].tolist()
+
+    previous_altaz = previous_altaz_array[
+        targets_boxed_mask
+    ].tolist()
+
+    current_apparent = current_apparent_array[
+        targets_boxed_mask
+    ].tolist()
+
+    logger.debug(
+        "filtered visible targets : %s out of %s",
+        len(current_altaz),
+        len(current_altaz_array),
+    )
+
+    # -------------------------------------------------------
+    # Target endpoint coordinates
+    # -------------------------------------------------------
+
+    target_alt_curr = np.array(
+        [t.alt.degree for t in current_altaz],
+        dtype=float,
+    )
+
+    target_az_curr = np.array(
+        [t.az.degree for t in current_altaz],
+        dtype=float,
+    )
+
+    target_alt_prev = np.array(
+        [t.alt.degree for t in previous_altaz],
+        dtype=float,
+    )
+
+    target_az_prev = np.array(
+        [t.az.degree for t in previous_altaz],
+        dtype=float,
+    )
+
+    # -------------------------------------------------------
+    # Satellite endpoint coordinates
+    # -------------------------------------------------------
 
     pre_sat_alt, pre_sat_az, _ = topocentric_pre.altaz()
     sat_alt, sat_az, _ = topocentric.altaz()
-    pre_alt = pre_sat_alt.degrees
-    pre_az = pre_sat_az.degrees
-    alt = sat_alt.degrees
-    az = sat_az.degrees
 
-    sat_alt_deg = sat_alt.degrees
-    sat_az_deg = sat_az.degrees
-    pre_sat_alt_deg = pre_sat_alt.degrees
-    pre_sat_az_deg = pre_sat_az.degrees
+    pre_sat_alt = pre_sat_alt.degrees
+    pre_sat_az = pre_sat_az.degrees
+
+    sat_alt = sat_alt.degrees
+    sat_az = sat_az.degrees
 
     def wrap_delta_az(delta):
         return ((delta + 180.0) % 360.0) - 180.0
 
-    try:
-        target_alts = np.array([t.alt.degree for t in visible_targets_altaz], dtype=float)
-        target_azs = np.array([t.az.degree for t in visible_targets_altaz], dtype=float)
+    # -------------------------------------------------------
+    # Relative-motion segment
+    # -------------------------------------------------------
 
-        cos_alt0 = np.cos(np.radians(target_alts))
+    target_alt_mid = 0.5 * (
+        target_alt_prev + target_alt_curr
+    )
 
-        x0 = wrap_delta_az(pre_az - target_azs) * cos_alt0
-        y0 = pre_alt - target_alts
-        x1 = wrap_delta_az(az - target_azs) * cos_alt0
-        y1 = alt - target_alts
+    cos_alt0 = np.cos(np.radians(target_alt_mid))
 
-        dx = x1 - x0
-        dy = y1 - y0
-        a = dx * dx + dy * dy
+    x0 = (
+        wrap_delta_az(pre_sat_az - target_az_prev)
+        * cos_alt0
+    )
 
-        t_closest = np.zeros_like(a)
-        non_zero = a > 0.0
-        t_closest[non_zero] = - (x0[non_zero] * dx[non_zero] + y0[non_zero] * dy[non_zero]) / a[non_zero]
-        t_closest = np.clip(t_closest, 0.0, 1.0)
+    y0 = pre_sat_alt - target_alt_prev
 
-        x_closest = x0 + t_closest * dx
-        y_closest = y0 + t_closest * dy
+    x1 = (
+        wrap_delta_az(sat_az - target_az_curr)
+        * cos_alt0
+    )
 
-        min_dist_deg = np.sqrt(x_closest * x_closest + y_closest * y_closest)
-        min_dist_arcsec = min_dist_deg * 3600.0
-        separation.extend(min_dist_arcsec.tolist())
+    y1 = sat_alt - target_alt_curr
 
-        contaminated_idx = np.where(min_dist_arcsec <= treshold)[0]
+    dx = x1 - x0
+    dy = y1 - y0
 
-        for idx in contaminated_idx:
-            name_up = names_up[idx]
-            target_apr = visible_targets_appr[idx]
-            target_altaz = visible_targets_altaz[idx]
-            logger.info('Contaminated target name : %s ra : %s , dec : %s', name_up, target_apr.radec()[0].degrees, target_apr.radec()[1].degrees)
-            logger.info('Contaminated target alt/az : %s , %s', target_altaz.alt.degree, target_altaz.az.degree)
-            logger.info('Contaminating satellite alt/az : %s , %s, pre alt/az : %s , %s', sat_alt_deg, sat_az_deg, pre_sat_alt_deg, pre_sat_az_deg)
-            logger.info('Segment min distance check : %s <= %s arcsec is %s', min_dist_arcsec[idx], treshold, True)
-            contaminated.append(target_altaz)
-            contaminated_names.append(name_up)
+    a = dx**2 + dy**2
 
-    except Exception as e:
-        logger.exception("Error in calculated_target_check vectorized path")
-        pre_alt, pre_az, _ = topocentric_pre.altaz()
-        alt, az, _ = topocentric.altaz()
-        pre_alt = pre_alt.degrees
-        pre_az = pre_az.degrees
-        alt = alt.degrees
-        az = az.degrees
+    t_closest = np.zeros_like(a)
 
-        def wrap_delta_az(delta):
-            return ((delta + 180.0) % 360.0) - 180.0
+    non_zero = a > 0.0
 
-        for name_up, target_apr, target_altaz in zip(names_up, visible_targets_appr, visible_targets_altaz):
-            try:
-                target_alt = target_altaz.alt.degree
-                target_az = target_altaz.az.degree
+    t_closest[non_zero] = -(
+        x0[non_zero] * dx[non_zero]
+        + y0[non_zero] * dy[non_zero]
+    ) / a[non_zero]
 
-                cos_alt0 = np.cos(np.radians(target_alt))
+    t_closest = np.clip(t_closest, 0.0, 1.0)
 
-                x0 = wrap_delta_az(pre_az - target_az) * cos_alt0
-                y0 = pre_alt - target_alt
-                x1 = wrap_delta_az(az - target_az) * cos_alt0
-                y1 = alt - target_alt
+    x_closest = x0 + t_closest * dx
+    y_closest = y0 + t_closest * dy
 
-                dx = x1 - x0
-                dy = y1 - y0
-                a = dx * dx + dy * dy
+    min_dist_arcsec = (
+        np.hypot(x_closest, y_closest) * 3600.0
+    )
 
-                if a == 0.0:
-                    t_closest = 0.0
-                else:
-                    t_closest = - (x0 * dx + y0 * dy) / a
-                    t_closest = max(0.0, min(1.0, t_closest))
+    separation = min_dist_arcsec.tolist()
 
-                x_closest = x0 + t_closest * dx
-                y_closest = y0 + t_closest * dy
+    contaminated_idx = np.flatnonzero(
+        min_dist_arcsec <= threshold
+    )
 
-                min_dist_deg = np.sqrt(x_closest * x_closest + y_closest * y_closest)
-                min_dist_arcsec = min_dist_deg * 3600.0
-                separation.append(min_dist_arcsec)
+    contaminated_t_closest = t_closest[contaminated_idx].tolist()
+    contaminated_separations = min_dist_arcsec[contaminated_idx].tolist()
+    assert (
+        len(contaminated_idx)
+        == len(contaminated_t_closest)
+        == len(contaminated_separations)
+    )
+    for idx in contaminated_idx:
 
-                segment_cond = min_dist_arcsec <= treshold
+        name_up = names_up[idx]
+        target_altaz = current_altaz[idx]
+        target_apr = current_apparent[idx]
+        fraction_closest = t_closest[idx]
 
-            except Exception as e_inner:
-                logger.exception("Error in calculated_target_check fallback")
-                segment_cond = False
-                min_dist_arcsec = np.nan
+        ra, dec, _ = target_apr.radec()
 
-            if segment_cond:
-                logger.info('Contaminated target name : %s ra : %s , dec : %s', name_up, target_apr.radec()[0].degrees, target_apr.radec()[1].degrees)
-                logger.info('Contaminated target alt/az : %s , %s', target_altaz.alt.degree, target_altaz.az.degree)
-                logger.info('Contaminating satellite alt/az : %s , %s, pre alt/az : %s , %s', topocentric.altaz()[0].degrees, topocentric.altaz()[1].degrees, topocentric_pre.altaz()[0].degrees, topocentric_pre.altaz()[1].degrees)
-                logger.info('Segment min distance check : %s <= %s arcsec is %s', min_dist_arcsec, treshold, segment_cond)
-                contaminated.append(target_altaz)
-                contaminated_names.append(name_up)
+        logger.info(
+            "Contaminated target name : %s ra : %s , dec : %s",
+            name_up,
+            ra.degrees,
+            dec.degrees,
+        )
 
-    return len(contaminated) > 0, contaminated, contaminated_names
+        logger.info(
+            "Contaminated target alt/az : %s , %s",
+            target_altaz.alt.degree,
+            target_altaz.az.degree,
+        )
 
-def calculate_target_positions(fits_file, deltatime, deltaday,local_start, local_end, rubinobs_astr, pathToTargets):
-    # Calculate target positions for the given time range
-    targets = []
-    names = []
-    times = []
-    ti = local_start
-    while ti < local_end:
-        next_day = ti + dt.timedelta(days=1)
-        while ti < next_day:
-            times.append(ti)
-            ti += deltatime
+        logger.info(
+            "Contaminating satellite alt/az : %s , %s, "
+            "pre alt/az : %s , %s",
+            sat_alt,
+            sat_az,
+            pre_sat_alt,
+            pre_sat_az,
+        )
 
-        ti += deltaday
+        logger.info(
+            "Segment min distance check : %s <= %s arcsec is True",
+            min_dist_arcsec[idx],
+            threshold,
+        )
 
-    n_times = len(times)
+        logger.info(
+            "Target closest approach fraction along segment: %s",
+            fraction_closest,
+        )
+
+        contaminated.append(target_altaz)
+        contaminated_names.append(name_up)
+
+    assert len(contaminated) == len(contaminated_names)
+    assert len(contaminated) == len(contaminated_t_closest)
+    assert len(contaminated) == len(contaminated_separations)
+    return (
+        len(contaminated) > 0,
+        contaminated,
+        contaminated_names,
+        contaminated_t_closest,
+        contaminated_separations,
+        separation
+    )
+
+# def calculate_target_positions(fits_file, deltatime, deltaday,local_start, local_end, rubinobs_astr, pathToTargets):
+#     # Calculate target positions for the given time range
+#     targets = []
+#     names = []
+#     times = []
+#     ti = local_start
+
+#     while ti < local_end:
+
+#         next_day = ti + dt.timedelta(days=1)
+#         while ti < next_day:
+#             times.append(ti)
+#             ti += deltatime
+
+#         ti += deltaday
+
+#     n_times = len(times)
      
-    with fits.open(pathToTargets) as hdul:
-        data = hdul[1].data
-        ra = data['Ra']
-        dec = data['Dec']
-        name = data['Name']
-        for i in range(0,10):
+#     with fits.open(pathToTargets) as hdul:
+#         data = hdul[1].data
+#         ra = data['Ra']
+#         dec = data['Dec']
+#         name = data['Name']
+#         for i in range(0,10):
 
-            target_i = Star(Angle(degrees=ra[i]),Angle(degrees=dec[i]))
-            target_i_name = name[i]
+#             target_i = Star(Angle(degrees=ra[i]),Angle(degrees=dec[i]))
+#             target_i_name = name[i]
 
-            targets.append(target_i)
-            names.append(target_i_name)
+#             targets.append(target_i)
+#             names.append(target_i_name)
 
-    hdul.close()
+#     hdul.close()
 
-    n_targets = len(targets)
-    fields = ['alt', 'az', 'distance_m', 'visible']
-    n_fields = len(fields)
-    logger.info('len times: %s, len targets: %s', n_times, n_targets)
+#     n_targets = len(targets)
+#     fields = ['alt', 'az', 'distance_m', 'visible']
+#     n_fields = len(fields)
+#     logger.info('len times: %s, len targets: %s', n_times, n_targets)
 
-    cube_a = np.zeros((n_times, n_targets, n_fields), dtype=float)
-    cube_b = np.zeros((n_times, n_targets, 1), dtype=object)
-    for t_idx, ti in enumerate(times):
-        rubin = rubinobs_astr.at(ti)
-        for s_idx, star in enumerate(targets):
-            # print(f'Calculating target {s_idx+1}/{n_targets} for time {t_idx+1}/{n_times}')
-            topocentric_t = rubin.observe(star)
-            appr = topocentric_t.apparent()
-            # print(appr)
-            alt_t, az_t, height = appr.altaz(temperature_C=12.0, pressure_mbar=750)
-            # print(f'Apparent {appr}: Altitude={alt_t.degrees}, Azimuth={az_t.degrees}, Height={height.to(u.m).value}')
-            cube_a[t_idx, s_idx,:] = [alt_t.degrees, az_t.degrees, height.to(u.m).value, 0 if alt_t.degrees < 30 else 1]
-            cube_b[t_idx, s_idx, :] = appr
+#     cube_a = np.zeros((n_times, n_targets, n_fields), dtype=float)
+#     cube_b = np.zeros((n_times, n_targets, 1), dtype=object)
+#     for t_idx, ti in enumerate(times):
+#         rubin = rubinobs_astr.at(ti)
+#         for s_idx, star in enumerate(targets):
+#             # print(f'Calculating target {s_idx+1}/{n_targets} for time {t_idx+1}/{n_times}')
+#             topocentric_t = rubin.observe(star)
+#             appr = topocentric_t.apparent()
+#             # print(appr)
+#             alt_t, az_t, height = appr.altaz(temperature_C=12.0, pressure_mbar=750)
+#             # print(f'Apparent {appr}: Altitude={alt_t.degrees}, Azimuth={az_t.degrees}, Height={height.to(u.m).value}')
+#             cube_a[t_idx, s_idx,:] = [alt_t.degrees, az_t.degrees, height.to(u.m).value, 0 if alt_t.degrees < 30 else 1]
+#             cube_b[t_idx, s_idx, :] = appr
 
-    # Save the cube to a FITS file
-    hdu_a = fits.PrimaryHDU(cube_a)
-    hdu_b = fits.PrimaryHDU(cube_b)
-    hdul = fits.HDUList([hdu_a, hdu_b])
-    hdu_b.header["EXTNAME"] = "APPARENT_POSITIONS"
-    hdu_b.header["FIELDS"] = "apparent"
-    hdu_a.header["FIELDS"] = ",".join(fields)
-    hdu_a.header["NTARGETS"] = n_targets
-    hdu_a.header["TIMES"] = n_times
-    hdu_a.header["TARGETS"] = ",".join(names)
-    hdu_a.writeto(fits_file, overwrite=True)
+#     # Save the cube to a FITS file
+#     hdu_a = fits.PrimaryHDU(cube_a)
+#     hdu_b = fits.PrimaryHDU(cube_b)
+#     hdul = fits.HDUList([hdu_a, hdu_b])
+#     hdu_b.header["EXTNAME"] = "APPARENT_POSITIONS"
+#     hdu_b.header["FIELDS"] = "apparent"
+#     hdu_a.header["FIELDS"] = ",".join(fields)
+#     hdu_a.header["NTARGETS"] = n_targets
+#     hdu_a.header["TIMES"] = n_times
+#     hdu_a.header["TARGETS"] = ",".join(names)
+#     hdu_a.writeto(fits_file, overwrite=True)
 
-    logger.info('FITS file saved to %s', fits_file)
+#     logger.info('FITS file saved to %s', fits_file)
 
-    return fits_file
+#     return fits_file
 
 def manual_angular_separation(ra1, dec1, ra2, dec2):
     """
