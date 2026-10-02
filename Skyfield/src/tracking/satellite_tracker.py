@@ -84,52 +84,84 @@ class SatelliteTracker:
             else:
                 status = True
                 return None
-    
+
+    def _position_at_time(self, starlink, rubin_obs, ti):
+        """
+        Return the satellite topocentric position at a specific time.
+        """
+        difference = starlink - rubin_obs
+        topocentric = difference.at(ti)
+
+        sat_alt, sat_az, sat_distance = topocentric.altaz()
+
+        return {
+            "topocentric": topocentric,
+            "sat_alt": sat_alt,
+            "sat_az": sat_az,
+            "sat_distance": sat_distance,
+        }
+
     def point_trail_event(self, starlink, rubin_obs, ti):
         """
         Modified point_trail_event that stores current and previous positions
         """
-        start = time.time()
-        max_duration = 60
-        status = False
-        
-        while (((time.time() - start) % 60) < max_duration) & (status == False):
-            difference = starlink - rubin_obs
-            topocentric = difference.at(ti)
-            satal, sataz, sat_height = topocentric.altaz()
-            
-            # Update positions
-            self._update_positions(satal, sataz, sat_height, topocentric, ti, starlink.name)
-            
-            if (sat_height.to(u.km).value < 2000):
-                status = True
-                return topocentric
-            else:
-                status = True
-                return None
+
+        pos = self._position_at_time(
+            starlink,
+            rubin_obs,
+            ti,
+        )
+
+        topocentric = pos["topocentric"]
+        sat_alt = pos["sat_alt"]
+        sat_az = pos["sat_az"]
+        sat_distance = pos["sat_distance"]
+
+        self._update_positions(
+            sat_alt,
+            sat_az,
+            sat_distance,
+            topocentric,
+            ti,
+            starlink.name,
+        )
+
+        return topocentric
     
-    def brightness_calculation_current(self, rubinobs_astr, sun):
+    def brightness_calculation_at_event_time(self, starlink, rubinobs, rubinobs_astr, sun, event_time):
         """
-        Calculate brightness using current satellite position
+        Calculate brightness using the satellite position
+        propagated directly to event_time.
         """
-        if self.current_alt is None:
-            raise ValueError("No current satellite position available.")
-        
+
+        pos_dict_at_event_time = self._position_at_time(starlink, rubinobs, event_time)
+        sat_al = pos_dict_at_event_time['sat_alt'].degrees 
+        sat_az = pos_dict_at_event_time['sat_az'].degrees
+        sat_height = pos_dict_at_event_time['sat_distance'].to(u.m).value
+
         return point_brightness_calculation(
-            rubinobs_astr, self.current_time, sun, 
-            [self.current_alt], [self.current_az], self.current_height
+            rubinobs_astr,
+            event_time,
+            sun,
+            [sat_al],
+            [sat_az],
+            sat_height,
         )
     
     def brightness_calculation_previous(self, rubinobs_astr, sun):
         """
-        Calculate brightness using previous satellite position
+        Calculate brightness using the previous satellite position.
         """
         if self.previous_alt is None:
             raise ValueError("No previous satellite position available.")
         
         return point_brightness_calculation(
-            rubinobs_astr, self.previous_time, sun, 
-            [self.previous_alt], [self.previous_az], self.previous_height
+            rubinobs_astr,
+            self.previous_time,
+            sun,
+            [self.previous_alt],
+            [self.previous_az],
+            self.previous_height,
         )
     
     def calculate_angular_velocity(self):
@@ -147,8 +179,8 @@ class SatelliteTracker:
         
         # Calculate angular separation
         separation_arcsec = manual_angular_separation(
-            self.previous_alt, self.previous_az,
-            self.current_alt, self.current_az
+            self.previous_az, self.previous_alt,
+            self.current_az, self.current_alt
         )
         
         # Calculate time difference using Skyfield Time methods
