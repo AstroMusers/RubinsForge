@@ -13,6 +13,7 @@ from astropy.table import Table, Column
 import numpy as np
 import pandas as pd
 from astropy.time import Time, TimeDelta
+from pathlib import Path
 
 pathToFiles = '/data/a.saricaoglu/repo/RubinsForge/Skyfield/files'
 
@@ -239,6 +240,27 @@ def read_targets_file(targets_file, verbose=True):
     print(f"\nCreated targets dictionary with {len(targets)} targets")
     return targets
 
+def get_targets_as_dataframe(pathToTargets, region=None):
+    """
+    Get target coordinates from a FITS file as a pandas DataFrame.
+
+    Args:
+        pathToTargets (str): Path to the FITS file containing target coordinates.
+        region (str, optional): Region name to select specific targets. Defaults to None.
+    Returns:    pandas.DataFrame: A DataFrame containing the target coordinates and other fields.
+    """
+    with fits.open(pathToTargets) as hdul:
+        hdul.info()
+        
+        if region is not None:
+            data = hdul[f'{region}'].data
+        else:
+            data = hdul[f'In_LSST_footprint'].data
+
+        df = pd.DataFrame({*data})
+    print(f"Loaded {len(df)} target coordinates from {pathToTargets}")
+    return df
+
 def get_targets_as_coordinates(pathToTargets, region=None):
     """
     Get target coordinates from a FITS file.
@@ -464,7 +486,7 @@ def create_exposure_windows(visits_in_twilight):
 
     return fits_filename
 
-def get_exposure_windows(exposures_file):
+def get_exposure_windows(exposures_file, step_seconds=1.0):
     """
     Get exposure windows from a FITS file.
 
@@ -497,7 +519,30 @@ def get_exposure_windows(exposures_file):
                 exposure_dict[day] = {}
             start = Time(visit_data['mjd'][0], format='mjd').to_datetime(timezone=chile_tz)
             start = ts.from_datetime(start)            
-            window = [start + dt.timedelta(seconds=i) for i in range(0,int(visit_data['exposure_time'][0]) +1)]
+            duration = float(
+                visit_data["exposure_time"][0]
+            )
+
+            offsets = np.arange(
+                0.0,
+                duration,
+                step_seconds,
+            )
+
+            # Guarantee the exact exposure endpoint.
+            if (
+                len(offsets) == 0
+                or not np.isclose(offsets[-1], duration)
+            ):
+                offsets = np.append(
+                    offsets,
+                    duration,
+                )
+
+            window = [
+                start + dt.timedelta(seconds=float(offset))
+                for offset in offsets
+            ]
             exposure_dict[day][visit] = {
                 'visit_id': visit,
                 'mjd': visit_data['mjd'][0],
@@ -582,23 +627,32 @@ def exposure_targets_to_stars(exposures_file):
     chile_tz = timezone('Chile/Continental')
     ts = load.timescale()
 
+    exp_star_dict = {}
     with fits.open(exposures_file) as hdul:
         # print(hdul.info())
         data = hdul[1].data
-        print(len(data['target_id']))
-        print(len(np.unique(data['target_id'])))
+        for visit in np.unique(data['visit_id']):
+
+            exp_star_dict[visit] = {}
+            # Extract data for this visit
+            visit_mask = data['visit_id'] == visit
+            visit_data = data[visit_mask]
         
-        target_star = []
-        target_name = []
-        for target in np.unique(data['target_id']):
-            target_mask = data['target_id'] == target
-            target_data = data[target_mask]
+            target_star = []
+            target_name = []
+            for target in np.unique(visit_data['target_id']):
+                target_data = visit_data[visit_data['target_id'] == target]
+                if len(target_data) == 0:
+                    continue
 
-            target_star.append(Star(Angle(degrees=target_data['target_ra'][0]), Angle(degrees=target_data['target_dec'][0])))
-            target_name.append(f"Target {target}")
+                target_star.append(Star(Angle(degrees=target_data['target_ra'][0]), Angle(degrees=target_data['target_dec'][0])))
+                target_name.append(f"{target}")
 
-        return target_star, target_name
-    
+            exp_star_dict[visit]['stars'] = target_star
+            exp_star_dict[visit]['names'] = target_name
+
+    return exp_star_dict
+
 def fits_sanitize_table(tab):
     """
     Sanitize an Astropy Table for FITS output.
@@ -632,7 +686,7 @@ def fits_sanitize_table(tab):
             out[name] = col
     return out
 
-def find_satellites_up(satellites, observer, start_time, end_time, altitude_degrees=30.0, check_sunlit=True, eph=None, return_periods=False):
+def find_satellites_up(satellites, observer, start_time, end_time, altitude_degrees=15.0, check_sunlit=True, eph=None, return_periods=False):
     """
     Find satellites that are above horizon and optionally sunlit during time period
     
@@ -751,7 +805,7 @@ def find_satellites_up(satellites, observer, start_time, end_time, altitude_degr
     else:
         return satellites_up
 
-def find_satellites_up_simple(satellites, observer, check_time, altitude_degrees=30.0, check_sunlit=True, eph=None):
+def find_satellites_up_simple(satellites, observer, check_time, altitude_degrees=15.0, check_sunlit=True, eph=None):
     """
     Simplified version - check satellites at a single time point
     
@@ -796,7 +850,7 @@ def find_satellites_up_simple(satellites, observer, check_time, altitude_degrees
     
     return satellites_up
 
-def get_satellite_count_info(satellites, observer, check_time, altitude_degrees=30.0, eph=None):
+def get_satellite_count_info(satellites, observer, check_time, altitude_degrees=15.0, eph=None):
     """
     Get detailed count information about satellites
     
@@ -865,7 +919,98 @@ def is_time_in_periods(check_time, periods):
     
     return False
 
+def build_snapshot_index(snapshot_dir):
+    snapshot_dir = Path(snapshot_dir)
 
+    snapshot_index = []
+
+    for path in sorted(snapshot_dir.glob("*.parquet")):
+
+        preview = pd.read_parquet(
+            path,
+            columns=["query_mjd"],
+        )
+
+        if preview.empty:
+            continue
+
+        snapshot_mjd = float(
+            preview["query_mjd"].iloc[0]
+        )
+
+        snapshot_index.append(
+            (snapshot_mjd, path)
+        )
+
+    if not snapshot_index:
+        raise RuntimeError(
+            f"No valid TLE snapshots found in {snapshot_dir}"
+        )
+    snapshot_index.sort(key=lambda x: x[0])
+
+    return snapshot_index
+
+def load_starlink_snapshot(
+    visit_time,
+    snapshot_index,
+    ts,
+    max_age_hours=None,
+    cache=None,
+):
+    if cache is None:
+        cache = {}
+
+    visit_mjd = float(
+        visit_time.to_astropy().utc.mjd
+    )
+
+    snapshot_mjd, snapshot_path = min(
+        snapshot_index,
+        key=lambda x: abs(x[0] - visit_mjd),
+    )
+
+    snapshot_offset_hours = (
+        abs(snapshot_mjd - visit_mjd) * 24.0
+    )
+
+    if (
+        max_age_hours is not None
+        and snapshot_offset_hours > max_age_hours
+    ):
+        raise RuntimeError(
+            f"Closest TLE snapshot is "
+            f"{snapshot_offset_hours:.2f} h away "
+            f"from visit MJD {visit_mjd:.8f}"
+        )
+
+    if snapshot_path not in cache:
+
+        df = pd.read_parquet(snapshot_path)
+
+        starlinks = [
+            EarthSatellite(
+                str(row.tle_line1),
+                str(row.tle_line2),
+                str(row.satellite_name),
+                ts,
+            )
+            for row in df.itertuples(index=False)
+        ]
+
+        cache[snapshot_path] = {
+            "starlinks": starlinks,
+            "df": df,
+        }
+
+    cached = cache[snapshot_path]
+
+    return (
+        snapshot_path,
+        snapshot_mjd,
+        snapshot_offset_hours,
+        cached["starlinks"],
+        cached["df"],
+    )
 # def get_daily_twilight_periods_mjd(start_date, end_date, location=None, eph=None):
 #     """
 #     Get twilight periods for each day in MJD format
