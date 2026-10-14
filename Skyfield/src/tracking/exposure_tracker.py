@@ -33,7 +33,7 @@ class ExposureTracker:
         self.start_time = start_time
         self.end_time = end_time
         self.rubin_location_geocentric_astropy = EarthLocation.of_site('rubin')
-        self.rubin_location_geocentric =  wgs84.latlon(-30.244633,  -70.749417)
+        self.rubin_location_geocentric =  wgs84.latlon(-30.244633,  -70.749417, elevation_m = 2647)
         self.rubin_location_astrometric = earth +  wgs84.latlon(30.244633*S,  70.749417*W, elevation_m = 2647)
         self.visit_info = visit_info
 
@@ -103,6 +103,11 @@ class ExposureTracker:
         # Update exposure-level aggregated data
         if satellite_data:
             for sat_name, sat_info in satellite_data.items():
+                # Ensure None values are converted to np.nan for numpy compatibility
+                angular_velocity = sat_info.get('angular_velocity', np.nan)
+                if angular_velocity is None:
+                    angular_velocity = np.nan
+                    
                 self.all_satellite_positions.append({
                     'name': sat_name,
                     'time': ti,
@@ -111,25 +116,41 @@ class ExposureTracker:
                     'height': sat_info['height'],
                     'intensity': sat_info.get('intensity', np.nan),
                     'ab_magnitude': sat_info.get('ab_magnitude', np.nan),
-                    'angular_velocity': sat_info.get('angular_velocity', np.nan)
+                    'angular_velocity': angular_velocity
                 })
                 
-                if not np.isnan(sat_info.get('intensity', np.nan)):
+                intensity = sat_info.get('intensity', np.nan)
+                if intensity is not None and not np.isnan(intensity):
                     self.all_intensities.append(sat_info['intensity'])
                     self.all_ab_magnitudes.append(sat_info['ab_magnitude'])
                     self.all_satellite_names.append(sat_name)
                     self.all_times.append(ti)
-                if not np.isnan(sat_info.get('angular_velocity', np.nan)):
-                    self.all_angular_velocities.append(sat_info['angular_velocity'])
+                
+                angular_velocity = sat_info.get('angular_velocity', np.nan)
+                if angular_velocity is not None and not np.isnan(angular_velocity):
+                    self.all_angular_velocities.append(angular_velocity)
         
         # Add contaminated targets
         if contamination_data and contamination_data.get('contaminated_targets'):
             contaminated_targets = contamination_data.get('contaminated_targets', [])
             contaminated_names = contamination_data.get('contaminated_names', [])
+            contaminating_satellite = contamination_data.get('contaminating_satellite', 'UNKNOWN_SATELLITE')
             contaminated_intensities = contamination_data.get('intensities', [])
             contaminated_ab_magnitudes = contamination_data.get('ab_magnitudes', [])
-            contaminated_separations = contamination_data.get('separations', [])
+            contaminated_separations = contamination_data.get('contaminated_separations', [])
+            contaminated_sunlit = contamination_data.get("sunlit", [])
+            contaminated_t_closest = contamination_data.get("contaminated_t_closest", [])
+            contaminated_event_times = contamination_data.get("event_times", [] )
 
+            tle_quality = contamination_data.get(
+                "tle_quality",
+                "UNKNOWN",
+            )
+
+            tle_age_event_h = contamination_data.get(
+                "tle_age_event_h",
+                np.nan,
+            )
             for idx, target in enumerate(contaminated_targets):
                 target_name = contaminated_names[idx] if idx < len(contaminated_names) else 'UNKNOWN_TARGET'
                 if isinstance(target_name, (list, tuple, np.ndarray)):
@@ -141,14 +162,38 @@ class ExposureTracker:
                 target_intensity = contaminated_intensities[idx] if idx < len(contaminated_intensities) else np.nan
                 target_ab_magnitude = contaminated_ab_magnitudes[idx] if idx < len(contaminated_ab_magnitudes) else np.nan
                 target_separation = contaminated_separations[idx] if idx < len(contaminated_separations) else np.nan
+                target_sunlit = (
+                    contaminated_sunlit[idx]
+                    if idx < len(contaminated_sunlit)
+                    else False
+                )
+
+                target_t_closest = (
+                    contaminated_t_closest[idx]
+                    if idx < len(contaminated_t_closest)
+                    else np.nan
+                )
+
+                target_event_time = (
+                    contaminated_event_times[idx]
+                    if idx < len(contaminated_event_times)
+                    else None
+                )
 
                 self.all_contaminated_targets.append({
                     'time': ti,
                     'position': target,
                     'name': target_name,
+                    'contaminating_satellite': contaminating_satellite,
                     'intensity': target_intensity,
                     'ab_magnitude': target_ab_magnitude,
-                    'separation': target_separation
+                    'contaminated_separations': target_separation,
+                    'sunlit': target_sunlit,
+                    't_closest': target_t_closest,
+                    'event_time': target_event_time,
+                    'tle_quality': tle_quality,
+                    'tle_age_event_h': tle_age_event_h
+
                 })
                 self.all_contaminated_names.append(target_name)
         
@@ -225,6 +270,9 @@ class ExposureTracker:
                 'num_exposures': 'NUM_EXPOSURES',
                 'seeing': 'SEEING',
                 'sky_brightness': 'SKY_BRIGHTNESS',
+                "tle_snapshot": "TLE_SNAPSHOT",
+                "tle_snapshot_mjd": "TLE_SNAPSHOT_MJD",
+                "tle_snapshot_offset_hours": "TLE_SNAPSHOT_OFFSET_H",
 
             }
             
@@ -267,6 +315,8 @@ class ExposureTracker:
                         visit_table[col_name] = visit_table[col_name].astype('int64')
                     elif col_name in ['EXP_START', 'EXP_END', 'FILTER']:
                         visit_table[col_name] = visit_table[col_name].astype('U25')
+                    elif col_name in ['TLE_SNAPSHOT']:
+                        visit_table[col_name] = visit_table[col_name].astype('U128')
                     else:
                         visit_table[col_name] = visit_table[col_name].astype('float64')
                 
@@ -347,10 +397,87 @@ class ExposureTracker:
             target_coords = [ct['position'] for ct in self.all_contaminated_targets]
             target_alts = [coord.alt.degree for coord in target_coords]
             target_azs = [coord.az.degree for coord in target_coords]
-            
-            contamination_table = Table([np.array(target_names, dtype='U64'),
-                target_times, target_alts, target_azs
-            ], names=['Target_Name', 'Time', 'Target_Alt', 'Target_Az'])
+
+            contaminating_satellites = [
+                ct["contaminating_satellite"]
+                for ct in self.all_contaminated_targets
+            ]
+
+            sunlit_flags = [
+                ct["sunlit"]
+                for ct in self.all_contaminated_targets
+            ]
+
+            t_closest_values = [
+                ct["t_closest"]
+                for ct in self.all_contaminated_targets
+            ]
+
+            event_times = [
+                (
+                    ct["event_time"].to_astropy()
+                    if ct["event_time"] is not None
+                    else np.nan
+                )
+                for ct in self.all_contaminated_targets
+            ]
+
+            contaminated_separations = [
+                ct["contaminated_separations"]
+                for ct in self.all_contaminated_targets
+            ]
+
+            contaminated_intensities = [
+                ct["intensity"]
+                for ct in self.all_contaminated_targets
+            ]
+
+            contaminated_magnitudes = [
+                ct["ab_magnitude"]
+                for ct in self.all_contaminated_targets
+            ]
+            tle_qualities = [
+                ct.get("tle_quality", "UNKNOWN")
+                for ct in self.all_contaminated_targets
+            ]
+
+            tle_age_event_h = [
+                ct.get("tle_age_event_h", np.nan)
+                for ct in self.all_contaminated_targets
+            ]
+            contamination_table = Table(
+                [
+                    np.array(target_names, dtype="U64"),
+                    target_times,
+                    target_alts,
+                    target_azs,
+                    contaminating_satellites,
+                    sunlit_flags,
+                    t_closest_values,
+                    event_times,
+                    contaminated_separations,
+                    contaminated_intensities,
+                    contaminated_magnitudes,
+                    tle_qualities,
+                    tle_age_event_h,
+                ],
+                names=[
+                    "Target_Name",
+                    "Time",
+                    "Target_Alt",
+                    "Target_Az",
+                    "Contaminating_Satellite",
+                    "Sunlit",
+                    "t_closest",
+                    "Event_Time",
+                    "Contaminated_Separation_arcsec",
+                    "Intensity",
+                    "AB_Magnitude",
+                    "TLE_Quality",
+                    "TLE_Age_Event_h",
+                ],
+            )
+
             contamination_table = fits_sanitize_table(contamination_table)
             try:
                 contamination_hdu = fits.BinTableHDU(contamination_table)
