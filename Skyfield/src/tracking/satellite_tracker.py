@@ -147,8 +147,8 @@ class SatelliteTracker:
         
         # Calculate angular separation
         separation_arcsec = manual_angular_separation(
-            self.previous_alt, self.previous_az,
-            self.current_alt, self.current_az
+            self.previous_az, self.previous_alt,
+            self.current_az, self.current_alt
         )
         
         # Calculate time difference using Skyfield Time methods

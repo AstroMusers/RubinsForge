@@ -28,11 +28,7 @@ from matplotlib import colors as mcolors
 from astropy.visualization import quantity_support, time_support
 quantity_support() 
 
-def ra_formatter(x, pos):
-    hours = int(x)
-    minutes = int((x - hours) * 60)
-    seconds = int(((x - hours) * 60 - minutes) * 60)
-    return f'{hours:02d}:{minutes:02d}:{seconds:02d}'
+from ra_formatting import ra_formatter
 ####
 start_time = time.time()
 ts = load.timescale()

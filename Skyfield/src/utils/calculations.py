@@ -5,7 +5,7 @@ import numpy as np
 from astropy import units as u
 from astropy.io import fits
 from astropy.table import Table
-from astropy.coordinates import SkyCoord
+from astropy.coordinates import SkyCoord, angular_separation
 import skyfield as sf
 from skyfield.api import load, wgs84, EarthSatellite, N, W,S,E, Star, Angle
 import datetime as dt
@@ -19,6 +19,7 @@ import random
 from ..satellites import starlink_sat
 import lumos.plot
 import lumos.brdf.library
+from satellite_photometry import calculate_observer_brightness
 
 logger = logging.getLogger(__name__)
 
@@ -30,27 +31,14 @@ def brightness_calculation(rubinobs_astr, ti, sun, s, f, sat_al, sat_az, sat_hgh
     max_duration = 60
     status = False
     while (((time.time() - start) % 60) < max_duration) & (status == False):
-        astro = rubinobs_astr.at(ti).observe(sun)
-        app = astro.apparent()
-        sunalt, sunaz, sundistance = app.altaz()
-        sun_al = sunalt.degrees
-        sun_az = sunaz.degrees
-
-        sat_altitudes, sat_azimuths = \
-            np.meshgrid(
-            sat_al[s:f], 
-            sat_az[s:f])
-        sat_heights = sat_hght[s:f] # in meters
-        intensities = lumos.calculator.get_intensity_observer_frame(
-                starlink_sat.SURFACES_LAB_BRDFS, sat_heights, sat_altitudes, sat_azimuths,
-                sun_altitude = sun_al, sun_azimuth = sun_az,
-                include_earthshine = False)
-
-        # Convert intensity to AB Magnitude
-        ab_magnitudes = lumos.conversions.intensity_to_ab_mag(intensities)
-        #print(f'task brightness done in {((time.time() - start) % 60)} seconds')
+        result = calculate_observer_brightness(
+            rubinobs_astr, ti, sun, sat_al[s:f], sat_az[s:f], sat_hght[s:f],
+            surfaces=starlink_sat.SURFACES_LAB_BRDFS,
+            intensity_calculator=lumos.calculator.get_intensity_observer_frame,
+            magnitude_converter=lumos.conversions.intensity_to_ab_mag,
+        )
         status = True
-        return intensities, ab_magnitudes
+        return result
     else:
         return None
     
@@ -59,27 +47,12 @@ def point_brightness_calculation(rubinobs_astr, ti, sun, al, az, height):
     max_duration = 60
     status = False
     while (((time.time() - start) % 60) < max_duration) & (status == False):
-        astro = rubinobs_astr.at(ti).observe(sun)
-        app = astro.apparent()
-        sunalt, sunaz, sundistance = app.altaz()
-        sun_al = sunalt.degrees
-        sun_az = sunaz.degrees
-        # sun_al, sun_az = lumos.calculator.get_sun_alt_az(rubinobs_astr, ti.to_astropy())
-
-
-        sat_altitudes, sat_azimuths = \
-            np.meshgrid(
-            al, 
-            az)
-        sat_heights = height # in meters
-        intensity = lumos.calculator.get_intensity_observer_frame(
-                starlink_sat.SURFACES_LAB_BRDFS, sat_heights, sat_altitudes, sat_azimuths,
-                sun_altitude = sun_al, sun_azimuth = sun_az,
-                include_earthshine = False)
-
-        # Convert intensity to AB Magnitude
-        ab_magnitude = lumos.conversions.intensity_to_ab_mag(intensity)
-        #print(f'task brightness done in {((time.time() - start) % 60)} seconds')
+        intensity, ab_magnitude = calculate_observer_brightness(
+            rubinobs_astr, ti, sun, al, az, height,
+            surfaces=starlink_sat.SURFACES_LAB_BRDFS,
+            intensity_calculator=lumos.calculator.get_intensity_observer_frame,
+            magnitude_converter=lumos.conversions.intensity_to_ab_mag,
+        )
         status = True
         return intensity[0][0], ab_magnitude[0][0]
     else:
@@ -112,6 +85,30 @@ def trail_event(starlink, rubin_obs, ti, sat_t, sat_al, sat_az, sat_hght):
         else:
             status = True
             return None
+
+def record_radec_trail(
+    starlink, rubin_obs, ti, midnight, zone, sat_ra, sat_dec, sat_dist, sat_t,
+    sat_al, sat_az, sat_hght, *, time_objects=False,
+):
+    """Record range-selected trails with elapsed hours or original time objects."""
+    topocentric = (starlink - rubin_obs).at(ti)
+    right_ascension, declination, distance = topocentric.radec()
+    if not distance.to(u.km).value < 2000:
+        return None
+    sat_ra.append(right_ascension.hours)
+    sat_dec.append(declination.degrees)
+    sat_dist.append(distance.to(u.m).value)
+    altitude, azimuth, height = topocentric.altaz()
+    sat_al.append(altitude.degrees)
+    sat_az.append(azimuth.degrees)
+    sat_hght.append(height.to(u.m).value)
+    if time_objects:
+        sat_t.append(ti)
+    else:
+        elapsed = ti.astimezone(zone) - midnight.astimezone(zone)
+        sat_t.append(elapsed.total_seconds() / 3600)
+    return topocentric
+
 
 def point_trail_event(starlink, rubin_obs, ti, return_type=None):
     start = time.time()
@@ -150,7 +147,7 @@ def target_check(target_apr, target_altaz, topocentric, separation, treshold):
         separation.append(difference_angle.arcseconds())
 
         if (difference_angle.arcseconds() <= treshold):
-            logger.debug('Contaminated targets alt/az : %s , %s', target_apr.alt.degrees, target_apr.az.degrees)
+            logger.debug('Contaminated targets alt/az : %s , %s', target_altaz[0].degrees, target_altaz[1].degrees)
             # L.append(f'Contaminated targets alt/az : {target_apr.alt.degrees} , {target_apr.az.degrees}')
 
             logger.debug('Contamination difference angle  : %s', difference_angle.arcseconds())
@@ -163,7 +160,7 @@ def target_check(target_apr, target_altaz, topocentric, separation, treshold):
             return False
 
 
-def filter_targets(targets_altaz, topocentric, topocentric_pre, padding_treshold_arcsec = 30.0):
+def filter_targets(targets_altaz, topocentric, topocentric_pre, padding_treshold_arcsec = 30.0, *, previous_targets_altaz=None):
     """
     Vectorized target filtering for better performance
 
@@ -171,16 +168,21 @@ def filter_targets(targets_altaz, topocentric, topocentric_pre, padding_treshold
     -----------
     targets_altaz : list of SkyCoord
         Current target positions
-    targets_altaz_pre : list of SkyCoord
-        Previous target positions
-    box_bounds : tuple
-        (max_alt, min_alt, max_az, min_az)
+    topocentric, topocentric_pre : Skyfield positions
+        Current and previous satellite positions defining the box.
+    padding_treshold_arcsec : float
+        Angular padding in arcseconds.
+    previous_targets_altaz : list of SkyCoord, optional
+        Previous positions in the same target order and with the same length.
 
     Returns:
     --------
     numpy.ndarray : Boolean mask for targets within box
 
     """
+    if previous_targets_altaz is not None and len(previous_targets_altaz) != len(targets_altaz):
+        raise ValueError("Current and previous target positions must have the same length")
+    coordinate_sets = (targets_altaz,) if previous_targets_altaz is None else (targets_altaz, previous_targets_altaz)
     pre_alt, pre_az, pre_height = topocentric_pre.altaz()
     alt, az, height = topocentric.altaz()
     pre_alt, pre_az = pre_alt.degrees, pre_az.degrees
@@ -194,28 +196,19 @@ def filter_targets(targets_altaz, topocentric, topocentric_pre, padding_treshold
     max_alt += padding_deg
     min_alt -= padding_deg
 
-    # Extract coordinates as arrays
-    current_alts = np.array([t.alt.degree for t in targets_altaz])
-    current_azs = np.array([t.az.degree for t in targets_altaz])
-
     pad_az = padding_deg / max(np.cos(np.radians((max_alt + min_alt) / 2)), 0.1)  # Adjust azimuth padding based on altitude
-    # Check altitude bounds
-    current_alt_mask = (current_alts >= min_alt) & (current_alts <= max_alt)
-
-    # Check azimuth bounds with proper 0/360 wrap handling.
-    # Use signed shortest-angle differences relative to previous satellite azimuth.
     sat_delta_az = ((az - pre_az + 180.0) % 360.0) - 180.0
-    current_rel = ((current_azs - pre_az + 180.0) % 360.0) - 180.0
-
-    if sat_delta_az >= 0:
-        current_az_mask = (current_rel >= -pad_az) & (current_rel <= sat_delta_az + pad_az)
-    else:
-        current_az_mask = (current_rel <= pad_az) & (current_rel >= sat_delta_az - pad_az)
-
-    # Combine conditions
-    current_in_box = current_alt_mask & current_az_mask
-
-    # Target is included if either current or previous position is in box
+    current_in_box = np.zeros(len(targets_altaz), dtype=bool)
+    for positions in coordinate_sets:
+        current_alts = np.array([target.alt.degree for target in positions])
+        current_azs = np.array([target.az.degree for target in positions])
+        current_alt_mask = (current_alts >= min_alt) & (current_alts <= max_alt)
+        current_rel = ((current_azs - pre_az + 180.0) % 360.0) - 180.0
+        if sat_delta_az >= 0:
+            current_az_mask = (current_rel >= -pad_az) & (current_rel <= sat_delta_az + pad_az)
+        else:
+            current_az_mask = (current_rel <= pad_az) & (current_rel >= sat_delta_az - pad_az)
+        current_in_box |= current_alt_mask & current_az_mask
     return current_in_box
 
 def check_visit_region(visit_skycoord, topocentric, topocentric_pre):
@@ -570,15 +563,7 @@ def manual_angular_separation(ra1, dec1, ra2, dec2):
     ra2_rad = np.radians(ra2)
     dec2_rad = np.radians(dec2)
 
-    delta_ra = ra2_rad - ra1_rad
-    delta_dec = dec2_rad - dec1_rad
-
-    a = np.sin(delta_dec / 2)**2 + np.cos(dec1_rad) * np.cos(dec2_rad) * np.sin(delta_ra / 2)**2
-    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
-
-    # Convert radians to arcseconds
-    separation_arcsec = np.degrees(c) * 3600.0
-    return separation_arcsec
+    return np.degrees(angular_separation(ra1_rad, dec1_rad, ra2_rad, dec2_rad)) * 3600.0
 
 
 

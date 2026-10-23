@@ -35,11 +35,7 @@ quantity_support()
 matplotlib.rcParams['figure.figsize'] = (16,12)
 matplotlib.rcParams['font.size'] = 17
 
-def ra_formatter(x, pos):
-        hours = int(x)
-        minutes = int((x - hours) * 60)
-        seconds = int(((x - hours) * 60 - minutes) * 60)
-        return f'{hours:02d}:{minutes:02d}:{seconds:02d}'
+from ra_formatting import ra_formatter
 
 def trail_event(starlink, rubin_obs, ti, zone, sat_ra, sat_dec, sat_dist, sat_t, sat_al, sat_az, sat_hght):
     start = time.time()
@@ -132,18 +128,7 @@ logging.basicConfig(filename=log_filename, level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Redirect stdout and stderr to the log file
-class StreamToLogger:
-    def __init__(self, logger, log_level):
-        self.logger = logger
-        self.log_level = log_level
-        self.linebuf = ''
-
-    def write(self, buf):
-        for line in buf.rstrip().splitlines():
-            self.logger.log(self.log_level, line.rstrip())
-
-    def flush(self):
-        pass
+from logging_stream import StreamToLogger
 
 sys.stdout = StreamToLogger(logging.getLogger('STDOUT'), logging.INFO)
 sys.stderr = StreamToLogger(logging.getLogger('STDERR'), logging.ERROR)

@@ -12,31 +12,47 @@ class TargetTracker:
         -----------
         targets : list
             List of Skyfield Star objects
-        rubin_location : EarthLocation
-            Astropy EarthLocation for Rubin Observatory
+        names : list
+            Target names in the same order as targets.
+        rubin_location_astrometric : object
+            Observer position retained for this tracker.
+        rubin_location_geocentric : EarthLocation, optional
+            Explicit observatory location. None uses the Rubin site lookup.
         """
         self.targets = targets
         self.names = names
-        self.rubin_location_geocentric = rubin_location_geocentric or EarthLocation.of_site('rubin')
+        self.rubin_location_geocentric = (
+            EarthLocation.of_site('rubin')
+            if rubin_location_geocentric is None
+            else rubin_location_geocentric
+        )
         self.rubin_location_astrometric = rubin_location_astrometric 
 
         # Storage for target positions at each time
         self.time_cache = {}  # ti -> target positions
         self.exposure_times = []
         self.current_exposure_targets = None
+        self.current_exposure_names = None
 
     def calculate_targets_for_exposure(self, exposure_times, observer, zone, horizon_degrees=30.0):
         """
-        Pre-calculate all target positions for an entire exposure
+        Pre-calculate target positions separately at every exposure timestamp.
+
+        Select targets above the horizon at the first timestamp and retain
+        that ordering throughout the exposure.
         
         Parameters:
         -----------
         exposure_times : list
             List of Skyfield time objects for the exposure
         observer : Skyfield observer position
+        zone : timezone
+            Timezone used for progress output.
         horizon_degrees : float
             Minimum altitude for targets to be considered "up"
         """
+        if len(exposure_times) == 0:
+            raise ValueError("At least one exposure time is required")
         print(f"Calculating targets for exposure from {exposure_times[0].astimezone(zone)} to {exposure_times[-1].astimezone(zone)}")
         calc_start = time.time()
         
@@ -61,38 +77,36 @@ class TargetTracker:
 
         print(f"Found {len(targets_up)} targets above {horizon_degrees}° horizon")
         
-        rubin_at_first = observer.at(first_time)
-        topocentric_positions = [rubin_at_first.observe(target) for target in targets_up]
-        apparent_positions = [topo.apparent() for topo in topocentric_positions]
-        alt_az_data = [pos.altaz(temperature_C=12.0, pressure_mbar=750) for pos in apparent_positions]
-        alt_t, az_t, height_t = zip(*alt_az_data) if alt_az_data else ([], [], [])
-        skycoords = [
-            SkyCoord(
-                alt=alt.degrees*u.degree,
-                az=az.degrees*u.degree,
-                frame='altaz',
-                unit='deg',
-                obstime=first_time.to_astropy(),
-                location=self.rubin_location_geocentric
-            ) for alt, az in zip(alt_t, az_t)
-        ] if alt_t else []
-
-        static_entry = {
-            'targets_up': targets_up,
-            'names_up': names_up,
-            'apparent_positions': apparent_positions,
-            'skycoords': skycoords,
-            'alt_az_tuples': list(zip(alt_t, az_t)) if alt_t else []
-        }
-
         for ti in exposure_times:
-            self.time_cache[ti] = static_entry
+            rubin_at_time = observer.at(ti)
+            topocentric_positions = [rubin_at_time.observe(target) for target in targets_up]
+            apparent_positions = [topo.apparent() for topo in topocentric_positions]
+            alt_az_data = [pos.altaz(temperature_C=12.0, pressure_mbar=750) for pos in apparent_positions]
+            alt_t, az_t, height_t = zip(*alt_az_data) if alt_az_data else ([], [], [])
+            skycoords = [
+                SkyCoord(
+                    alt=alt.degrees*u.degree,
+                    az=az.degrees*u.degree,
+                    frame='altaz',
+                    unit='deg',
+                    obstime=ti.to_astropy(),
+                    location=self.rubin_location_geocentric
+                ) for alt, az in zip(alt_t, az_t)
+            ] if alt_t else []
+            self.time_cache[ti] = {
+                'targets_up': targets_up,
+                'names_up': names_up,
+                'apparent_positions': apparent_positions,
+                'skycoords': skycoords,
+                'alt_az_tuples': list(zip(alt_t, az_t)) if alt_t else []
+            }
         
         calc_time = time.time() - calc_start
         print(f"Target calculation completed in {calc_time:.2f} seconds for {len(exposure_times)} time steps")
         
         # Store current exposure info
         self.current_exposure_targets = targets_up
+        self.current_exposure_names = names_up
         
         return targets_up
     
@@ -128,10 +142,10 @@ class TargetTracker:
         return self.current_exposure_targets
     
     def get_names_up(self, ti=None):
-        """Get list of target names that are up (uses current exposure targets)"""
+        """Return selected names, or catalog names before an exposure is computed."""
         if ti is not None and ti in self.time_cache:
             return self.time_cache[ti]['names_up']
-        return self.names
+        return self.names if self.current_exposure_names is None else self.current_exposure_names
     def has_time_cached(self, ti):
         """Check if time is in cache"""
         return ti in self.time_cache
@@ -141,6 +155,7 @@ class TargetTracker:
         self.time_cache = {}
         self.exposure_times = []
         self.current_exposure_targets = None
+        self.current_exposure_names = None
     
     def get_cache_info(self):
         """Get information about current cache"""

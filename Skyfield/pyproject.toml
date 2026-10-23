@@ -83,6 +83,7 @@ skyfield-brightness = "src.scripts.brightness_calculation:main"
 
 [tool.setuptools]
 package-dir = {"" = "."}
+py-modules = ["ra_formatting", "logging_stream", "satellite_photometry"]
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -114,6 +115,7 @@ extend-exclude = '''
 # Pytest configuration
 [tool.pytest.ini_options]
 minversion = "7.0"
+pythonpath = ["."]
 addopts = "-ra -q --strict-markers --strict-config"
 testpaths = ["tests"]
 filterwarnings = [

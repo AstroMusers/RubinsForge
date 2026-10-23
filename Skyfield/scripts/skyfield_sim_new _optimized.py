@@ -151,7 +151,7 @@ for day in schedule:
         exposure_counter += 1
         exposure = ExposureTracker(exposure_id=exposure_counter, start_time=exp[0], end_time=exp[-1], observer_location=rubin_obs)
 
-        satellites_up, satellite_periods = SatelliteTracker.find_satellites_up(starlinks, rubin_obs, exposure.start_time, exposure.end_time, altitude_degrees=30.0, return_periods=True)
+        satellites_up, satellite_periods = SatelliteTracker.find_satellites_up(starlinks, rubin_obs, exposure.start_time, exposure.end_time, altitude_degrees=30.0, return_periods=True, eph=eph)
         print(f'Number of satellites up at throughout the exposure: {len(satellites_up)}')
         
 
@@ -176,7 +176,11 @@ for day in schedule:
             satellite_visible_duration = satellite_periods[starlink]['total_visible_duration']
             period_start_pos = point_trail_event(starlink, rubin_obs, satellite_period[0][0])
             period_end_pos = point_trail_event(starlink, rubin_obs, satellite_period[0][1])
-            target_box = filter_targets(target_tracker.get_targets_at_time(satellite_period[0][1])['skycoords'], target_tracker.get_targets_at_time(satellite_period[0][0])['skycoords'], period_end_pos, period_start_pos)
+            target_box = filter_targets(
+                target_tracker.get_targets_at_time(satellite_period[0][1])['skycoords'],
+                period_end_pos, period_start_pos,
+                previous_targets_altaz=target_tracker.get_targets_at_time(satellite_period[0][0])['skycoords'],
+            )
             exposure.increment_counters(total_events=int(satellite_visible_duration))
 
             if np.sum(target_box) == 0:
@@ -374,6 +378,3 @@ for day in schedule:
    #L.append(f"\n Current time: {current_time} Runtime: {hours}h {minutes}m {seconds:.2f}s , Day {day[0][0].astimezone(zone).day} completed ")
    #L.append('\n #####################################################################################')
     #print('Check point 5 : ',time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time())))
-
-
-

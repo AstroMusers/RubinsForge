@@ -30,11 +30,7 @@ quantity_support()
 matplotlib.rcParams['figure.figsize'] = (16,12)
 matplotlib.rcParams['font.size'] = 17
 
-def ra_formatter(x, pos):
-        hours = int(x)
-        minutes = int((x - hours) * 60)
-        seconds = int(((x - hours) * 60 - minutes) * 60)
-        return f'{hours:02d}:{minutes:02d}:{seconds:02d}'
+from ra_formatting import ra_formatter
 
 c = dt.datetime.now()
 if not os.path.exists("/data/a.saricaoglu/Lumos-Sat/Files/" +  str(c.strftime("%m.%d"))): 

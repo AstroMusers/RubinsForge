@@ -1,7 +1,7 @@
 # %%
 # Parent version: skyfield_101224_positions_and_contamination_final_ver4.2
 # Runs with daily increments, samples every 0.1m of the satellites and checks masterfıts in the sky.
-# Plots altitude, azimuth and distance. ONLY positions no target contamination check.
+# Plots altitude, azimuth and distance, and checks targets for contamination.
 import os
 import sys
 import logging
@@ -148,7 +148,7 @@ while t00 < obs_end:
     d = d + 1
     
     L.append(f'\n Day #{d}')
-    tle, starlinks = find_closest_TLE(t00, pathToTLE)
+    tle, starlinks = find_closest_TLE(t00, pathToTLE, zone)
 
     set_plot_style()
     plt.figure(figsize=(10, 5))
@@ -266,7 +266,7 @@ while t00 < obs_end:
                 while (ti < set_t) & ((ti < day_start) | (ti > day_end)) & starlink.at(ti).is_sunlit(eph) & (skip < 10):
 
                     separation = []
-                    topocentric = trail_event(starlink, rubin_obs, ti, midnight, zone, sat_ra, sat_dec, sat_dist, sat_t, sat_al, sat_az, sat_hght)   
+                    topocentric = record_radec_trail(starlink, rubin_obs, ti, midnight, zone, sat_ra, sat_dec, sat_dist, sat_t, sat_al, sat_az, sat_hght, time_objects=True)
                     
                     if topocentric is None:
                         skip = skip + 1
@@ -296,13 +296,14 @@ while t00 < obs_end:
                     #print('Check point 3 : ',time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time())))
                 print(f'indices {s}, {f}')    
                 if f-s != 0:
-                    intensities, ab_magnitudes = brightness_calculation(rubinobs_astr, ti, sun, s, f, sat_al, sat_az, sat_hght)
+                    brightness_result = brightness_calculation(rubinobs_astr, ti, sun, s, f, sat_al, sat_az, sat_hght)
 
-                    if intensities is None:
+                    if brightness_result is None or brightness_result[0] is None:
                         print(f'Brightness calc for event {trailcan_counter} for satellite {starlink.name} is taking too long, stopping.')
                         trailcan_counter = trailcan_counter - 1
                         continue
 
+                    intensities, ab_magnitudes = brightness_result
 
                     sat_altitudes, sat_azimuths = \
                     np.meshgrid(

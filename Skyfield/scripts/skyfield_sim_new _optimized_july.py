@@ -191,7 +191,7 @@ for day in list(exposure_data.keys()):
 
         exposure = ExposureTracker(exposure_id=visit['visit_id'], start_time=exp[0], end_time=exp[-1], visit_info=visit)
 
-        satellites_up, satellite_periods = SatelliteTracker.find_satellites_up(starlinks, rubin_obs, exposure.start_time, exposure.end_time, altitude_degrees=30.0, return_periods=True)
+        satellites_up, satellite_periods = SatelliteTracker.find_satellites_up(starlinks, rubin_obs, exposure.start_time, exposure.end_time, altitude_degrees=30.0, return_periods=True, eph=eph)
         logger.info('Number of satellites up throughout the exposure: %s', len(satellites_up))
         
 
@@ -212,10 +212,10 @@ for day in list(exposure_data.keys()):
             satellite_tracker = satellite_trackers[starlink]
             satellite_period = satellite_periods[starlink]['combined_periods']
             satellite_visible_duration = satellite_periods[starlink]['total_visible_duration']
+            exposure.increment_counters(total_events=int(satellite_visible_duration))
             for period in satellite_period:
                 period_start_pos = point_trail_event(starlink, rubin_obs, period[0])
                 period_end_pos = point_trail_event(starlink, rubin_obs, period[1])
-                exposure.increment_counters(total_events=int(satellite_visible_duration))
 
                 if not check_visit_region(visit_region, period_end_pos, period_start_pos):
                     exposure.increment_counters(no_targets_skip=1)
@@ -525,6 +525,3 @@ for day in list(exposure_data.keys()):
    #L.append(f"\n Current time: {current_time} Runtime: {hours}h {minutes}m {seconds:.2f}s , Day {day[0][0].astimezone(zone).day} completed ")
    #L.append('\n #####################################################################################')
     #print('Check point 5 : ',time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time())))
-
-
-

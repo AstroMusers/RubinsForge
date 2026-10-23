@@ -35,11 +35,8 @@ quantity_support()
 matplotlib.rcParams['figure.figsize'] = (16,12)
 matplotlib.rcParams['font.size'] = 17
 
-def ra_formatter(x, pos):
-        hours = int(x)
-        minutes = int((x - hours) * 60)
-        seconds = int(((x - hours) * 60 - minutes) * 60)
-        return f'{hours:02d}:{minutes:02d}:{seconds:02d}'
+from satellite_photometry import calculate_observer_brightness
+from ra_formatting import ra_formatter
 
 def trail_event(starlink, rubin_obs, ti, zone, sat_ra, sat_dec, sat_dist, sat_t, sat_al, sat_az, sat_hght):
     start = time.time()
@@ -93,32 +90,14 @@ def target_check(target, rubin_obs, ti, topocentric, separation, treshold):
   
 
 
-def brightness_calculation(rubinobs_astr, sun, s, f, sat_al, sat_az, sat_hght):  
+def brightness_calculation(rubinobs_astr, sun, s, f, sat_al, sat_az, sat_hght):
     start = time.time()
     max_duration = 60
     status = False
-    while (((time.time() - start) % 60) < max_duration) & (status == False):
-        astro = rubinobs_astr.at(ti).observe(sun)
-        app = astro.apparent()
-        sunalt, sunaz, sundistance = app.altaz()
-        sun_al = sunalt.degrees
-        sun_az = sunaz.degrees
-
-        sat_altitudes, sat_azimuths = \
-            np.meshgrid(
-            sat_al[s:f], 
-            sat_az[s:f])
-        sat_heights = sat_hght[s:f]
-        intensities = lumos.calculator.get_intensity_observer_frame(
-                starlink_sat.SURFACES_INFER_BRDFS, sat_heights, sat_altitudes, sat_azimuths,
-                sun_altitude = sun_al, sun_azimuth = sun_az,
-                include_earthshine = False)
-            
-        # Convert intensity to AB Magnitude
-        ab_magnitudes = lumos.conversions.intensity_to_ab_mag(intensities)
-        #print(f'task brightness done in {((time.time() - start) % 60)} seconds')
+    while ((time.time() - start) % 60 < max_duration) & (status == False):
+        result = calculate_observer_brightness(rubinobs_astr, ti, sun, sat_al[s:f], sat_az[s:f], sat_hght[s:f], surfaces=starlink_sat.SURFACES_INFER_BRDFS, intensity_calculator=lumos.calculator.get_intensity_observer_frame, magnitude_converter=lumos.conversions.intensity_to_ab_mag)
         status = True
-        return intensities, ab_magnitudes
+        return result
     else:
         return None
 
@@ -131,18 +110,7 @@ logging.basicConfig(filename=log_filename, level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Redirect stdout and stderr to the log file
-class StreamToLogger:
-    def __init__(self, logger, log_level):
-        self.logger = logger
-        self.log_level = log_level
-        self.linebuf = ''
-
-    def write(self, buf):
-        for line in buf.rstrip().splitlines():
-            self.logger.log(self.log_level, line.rstrip())
-
-    def flush(self):
-        pass
+from logging_stream import StreamToLogger
 
 sys.stdout = StreamToLogger(logging.getLogger('STDOUT'), logging.INFO)
 sys.stderr = StreamToLogger(logging.getLogger('STDERR'), logging.ERROR)

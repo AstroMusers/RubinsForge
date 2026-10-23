@@ -12,7 +12,7 @@ earth = eph['earth']
 sun = eph['sun']
 
 class ExposureTracker:
-    def __init__(self, exposure_id, start_time, end_time, visit_info=None):
+    def __init__(self, exposure_id, start_time, end_time, visit_info=None, *, observer_location=None):
         """
         Initialize an ExposureTracker object
 
@@ -24,17 +24,32 @@ class ExposureTracker:
             Start time of exposure
         end_time : Skyfield time
             End time of exposure
-        observer_location : EarthLocation
-            Observer location for coordinate transformations
         visit_info : dict, optional
             Additional visit information (e.g., field center, seeing, sky brightness)
+        observer_location : EarthLocation or Skyfield terrestrial position, optional
+            Explicit observatory location. None retains the Rubin defaults.
         """
         self.exposure_id = exposure_id
         self.start_time = start_time
         self.end_time = end_time
-        self.rubin_location_geocentric_astropy = EarthLocation.of_site('rubin')
-        self.rubin_location_geocentric =  wgs84.latlon(-30.244633,  -70.749417)
-        self.rubin_location_astrometric = earth +  wgs84.latlon(30.244633*S,  70.749417*W, elevation_m = 2647)
+        if observer_location is None:
+            self.rubin_location_geocentric_astropy = EarthLocation.of_site('rubin')
+            self.rubin_location_geocentric = wgs84.latlon(-30.244633, -70.749417)
+            self.rubin_location_astrometric = earth + wgs84.latlon(30.244633*S, 70.749417*W, elevation_m=2647)
+        else:
+            if isinstance(observer_location, EarthLocation):
+                self.rubin_location_geocentric_astropy = observer_location
+                geodetic = observer_location.to_geodetic(ellipsoid='WGS84')
+                self.rubin_location_geocentric = wgs84.latlon(
+                    geodetic.lat.to_value(u.deg), geodetic.lon.to_value(u.deg),
+                    elevation_m=geodetic.height.to_value(u.m),
+                )
+            else:
+                self.rubin_location_geocentric = observer_location
+                self.rubin_location_geocentric_astropy = EarthLocation.from_geocentric(
+                    *observer_location.itrs_xyz.m, unit=u.m,
+                )
+            self.rubin_location_astrometric = earth + self.rubin_location_geocentric
         self.visit_info = visit_info
 
         # Exposure-level statistics
@@ -71,10 +86,10 @@ class ExposureTracker:
     
     def get_visit_region_apparent(self):
         """Return the visit region center as an apparent position if available"""
-        if self.visit_info:
-
-            apparent = self.rubin_location_astrometric.at(self.start_time).observe(self.visit_info.get('visit_center_as_star')).apparent()
-        return apparent
+        center = self.visit_info.get('visit_center_as_star') if self.visit_info else None
+        if center is None:
+            return None
+        return self.rubin_location_astrometric.at(self.start_time).observe(center).apparent()
 
     def add_timestep_data(self, ti, satellite_data, target_data, contamination_data):
         """
@@ -123,8 +138,8 @@ class ExposureTracker:
                     self.all_angular_velocities.append(sat_info['angular_velocity'])
         
         # Add contaminated targets
-        if contamination_data and contamination_data.get('contaminated_targets'):
-            contaminated_targets = contamination_data.get('contaminated_targets', [])
+        contaminated_targets = contamination_data.get('contaminated_targets', []) if contamination_data else []
+        if contaminated_targets is not None and len(contaminated_targets) > 0:
             contaminated_names = contamination_data.get('contaminated_names', [])
             contaminated_intensities = contamination_data.get('intensities', [])
             contaminated_ab_magnitudes = contamination_data.get('ab_magnitudes', [])
@@ -153,8 +168,9 @@ class ExposureTracker:
                 self.all_contaminated_names.append(target_name)
         
         # Add separations
-        if contamination_data and contamination_data.get('separations'):
-            self.all_separations.extend(contamination_data['separations'])
+        separations = contamination_data.get('separations', []) if contamination_data else []
+        if separations is not None:
+            self.all_separations.extend(separations)
 
     def increment_counters(self, total_events=0, trail_candidates=0, contaminations=0, no_topo_skip=0, no_brightness_skip=0, no_targets_skip=0):
         """Update exposure counters"""
@@ -288,23 +304,22 @@ class ExposureTracker:
         
         # Main satellite data table
         if self.all_satellite_positions:
-            if self.trail_candidates:
-                satellite_times = [pos['time'].to_astropy() for pos in self.all_satellite_positions]
-                satellite_names = [pos['name'] for pos in self.all_satellite_positions]
-                satellite_alts = [pos['alt'] for pos in self.all_satellite_positions]
-                satellite_azs = [pos['az'] for pos in self.all_satellite_positions]
-                satellite_heights = [pos['height'] for pos in self.all_satellite_positions]
-                satellite_intensities = [pos['intensity'] for pos in self.all_satellite_positions]
-                satellite_magnitudes = [pos['ab_magnitude'] for pos in self.all_satellite_positions]
-                satellite_angular_velocities = [pos.get('angular_velocity', np.nan) for pos in self.all_satellite_positions]
-                
-                main_table = Table([
-                    satellite_times, satellite_names, satellite_azs, satellite_alts,
-                    satellite_heights, satellite_intensities, satellite_magnitudes, satellite_angular_velocities
-                ], names=[
-                    'Time', 'Satellite_Name', 'Azimuth', 'Altitude',
-                    'Height', 'Intensity', 'AB_Magnitude', 'Angular_Velocity'
-                ])
+            satellite_times = [pos['time'].to_astropy() for pos in self.all_satellite_positions]
+            satellite_names = [pos['name'] for pos in self.all_satellite_positions]
+            satellite_alts = [pos['alt'] for pos in self.all_satellite_positions]
+            satellite_azs = [pos['az'] for pos in self.all_satellite_positions]
+            satellite_heights = [pos['height'] for pos in self.all_satellite_positions]
+            satellite_intensities = [pos['intensity'] for pos in self.all_satellite_positions]
+            satellite_magnitudes = [pos['ab_magnitude'] for pos in self.all_satellite_positions]
+            satellite_angular_velocities = [pos.get('angular_velocity', np.nan) for pos in self.all_satellite_positions]
+
+            main_table = Table([
+                satellite_times, satellite_names, satellite_azs, satellite_alts,
+                satellite_heights, satellite_intensities, satellite_magnitudes, satellite_angular_velocities
+            ], names=[
+                'Time', 'Satellite_Name', 'Azimuth', 'Altitude',
+                'Height', 'Intensity', 'AB_Magnitude', 'Angular_Velocity'
+            ])
             
             main_hdu = fits.BinTableHDU(main_table)
             main_hdu.header['EXTNAME'] = 'SATELLITE_DATA'
@@ -326,10 +341,12 @@ class ExposureTracker:
             # Add statistics to header
             stats = self.get_statistics()
             if 'peak_intensity' in stats:
-                main_hdu.header['PEAKI'] = stats['peak_intensity']
-                main_hdu.header['AVGI'] = stats['average_intensity']
-                main_hdu.header['PEAKM'] = stats['peak_ab_magnitude']
-                main_hdu.header['AVGM'] = stats['average_ab_magnitude']
+                for header_key, statistic in (
+                    ('PEAKI', 'peak_intensity'), ('AVGI', 'average_intensity'),
+                    ('PEAKM', 'peak_ab_magnitude'), ('AVGM', 'average_ab_magnitude'),
+                ):
+                    value = stats[statistic]
+                    main_hdu.header[header_key] = value if np.isfinite(value) else None
             
             extensions.append(main_hdu)
         
@@ -348,7 +365,7 @@ class ExposureTracker:
             target_alts = [coord.alt.degree for coord in target_coords]
             target_azs = [coord.az.degree for coord in target_coords]
             
-            contamination_table = Table([np.array(target_names, dtype='U64'),
+            contamination_table = Table([target_names,
                 target_times, target_alts, target_azs
             ], names=['Target_Name', 'Time', 'Target_Alt', 'Target_Az'])
             contamination_table = fits_sanitize_table(contamination_table)
@@ -375,8 +392,11 @@ class ExposureTracker:
             separations_hdu.header['EXTNAME'] = 'SEPARATIONS'
             separations_hdu.header['EXPID'] = self.exposure_id
             separations_hdu.header['NSEP'] = len(self.all_separations)
-            separations_hdu.header['MINSEP'] = np.min(self.all_separations)
-            separations_hdu.header['AVGSEP'] = np.mean(self.all_separations)
+            for header_key, value in (
+                ('MINSEP', np.min(self.all_separations)),
+                ('AVGSEP', np.mean(self.all_separations)),
+            ):
+                separations_hdu.header[header_key] = value if np.isfinite(value) else None
             
             # Add visit info to separations header
             if self.visit_info and 'visit_id' in self.visit_info:
@@ -403,5 +423,3 @@ class ExposureTracker:
         
         if 'closest_approach_arcsec' in stats:
             print(f"  Closest approach: {stats['closest_approach_arcsec']:.2f} arcsec")
-
- 

@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 from matplotlib import colors as mcolors
 import numpy as np
 from matplotlib.ticker import FuncFormatter
+from ra_formatting import ra_formatter
 
 def set_plot_style():
     """
@@ -20,9 +21,3 @@ def set_plot_style():
     plt.rcParams["font.size"] = 11
     # Set default colormap to plasma
     plt.rcParams["image.cmap"] = "plasma"
-
-def ra_formatter(x, pos):
-    hours = int(x)
-    minutes = int((x - hours) * 60)
-    seconds = int(((x - hours) * 60 - minutes) * 60)
-    return f'{hours:02d}:{minutes:02d}:{seconds:02d}'

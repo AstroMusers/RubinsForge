@@ -1,7 +1,7 @@
 # %%
 # Parent version: skyfield_101224_positions_and_contamination_final_ver4.2
 # Runs with daily increments, samples every 0.1m of the satellites and checks masterfıts in the sky.
-# Plots altitude, azimuth and distance. ONLY positions no target contamination check.
+# Plots altitude, azimuth and distance, and checks targets for contamination.
 import os
 import sys
 import logging
@@ -242,7 +242,7 @@ while t00 < local_end:
 
             ti = rise_t
             skip = 0
-            s = len(sat_ra)
+            s = len(sat_al)
             while starlink.at(ti).is_sunlit(eph) & (ti < set_t) & (skip < 10):
                 
                 if ti == rise_t:
@@ -252,7 +252,7 @@ while t00 < local_end:
                     print(f'Rising time: {rise_t.astimezone(zone)}, setting time: {set_t.astimezone(zone)}')
 
                 separation = []
-                topocentric = trail_event(starlink, rubin_obs, ti, sat_t, sat_al, sat_az, sat_hght)   
+                topocentric = trail_event(starlink, rubin_obs, ti, sat_t, sat_al, sat_az, sat_hght)
                 
                 if topocentric is None:
                     
@@ -294,7 +294,7 @@ while t00 < local_end:
 
                 for target_appr, target_altaz in zip(filtered_targets_apparent, filtered_targets_altaz):
 
-                    contamination = target_check(L, target_appr, target_altaz, topocentric, separation, treshold)
+                    contamination = target_check(target_appr, target_altaz, topocentric, separation, treshold)
 
                     if contamination:
                         contamination_counter = contamination_counter + 1
@@ -311,18 +311,19 @@ while t00 < local_end:
                 ti = ti + deltatime
 
             skips = skips + (skip // 10)    
-            f = len(sat_ra)
+            f = len(sat_al)
 
             #print('Check point 3 : ',time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time())))
             # print(f'indices {s}, {f}')    
             if f-s != 0:
-                intensities, ab_magnitudes = brightness_calculation(rubinobs_astr, ti, sun, s, f, sat_al, sat_az, sat_hght)
+                brightness_result = brightness_calculation(rubinobs_astr, ti, sun, s, f, sat_al, sat_az, sat_hght)
 
-                if intensities is None:
+                if brightness_result is None or brightness_result[0] is None:
                     print(f'Brightness calc for event {trailcan_counter} for satellite {starlink.name} is taking too long, stopping.')
                     trailcan_counter = trailcan_counter - 1
                     continue
 
+                intensities, ab_magnitudes = brightness_result
 
                 sat_altitudes, sat_azimuths = \
                 np.meshgrid(
