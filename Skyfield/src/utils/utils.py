@@ -1,6 +1,7 @@
 import logging
 import sys, os
 import datetime as dt
+from pathlib import Path
 from pytz import timezone
 from astropy.io import fits
 from astropy.table import Table
@@ -17,7 +18,17 @@ from logging_stream import StreamToLogger
 
 _CHILE_TIMEZONE = timezone('Chile/Continental')
 
-pathToFiles = '/data/a.saricaoglu/repo/RubinsForge/Skyfield/files'
+pathToFiles = str(Path(__file__).resolve().parents[2] / 'files')
+
+
+def _display_path(path):
+    resolved_path = Path(path).resolve()
+    repository_path = Path(__file__).resolve().parents[3]
+    try:
+        return str(resolved_path.relative_to(repository_path))
+    except ValueError:
+        return resolved_path.name
+
 
 def _find_closest_tle_path(obs_date, tle_data_path, zone):
     """Return the nearest dated TLE filename and path, strictly within 30 days."""
@@ -293,12 +304,13 @@ def save_twilight_windows_numpy(local_start, local_end, twilight_events, filenam
     
     filename = f"{filename_base}.npz"
     os.makedirs(os.path.dirname(filename) or '.', exist_ok=True)
-    print(f'Writing to {filename}...')
+    display_filename = _display_path(filename)
+    print(f'Writing to {display_filename}...')
     np.savez_compressed(filename,
                        twilight_data=twilight_array,
                        metadata=np.array([local_start, local_end]))
     
-    print(f"Twilight data saved to {filename}")
+    print(f"Twilight data saved to {display_filename}")
 
 def find_twilight_window_visit_overlaps(twilight_windows, visit_exposure_groups, extension_time=1.5, verbose=True):
     """Find overlaps between twilight windows and visit/exposure groups"""
@@ -449,9 +461,10 @@ def create_exposure_windows(visits_in_twilight):
     # Write to FITS file
     fits_filename = f"{pathToFiles}/twilight_visits/{local_start.strftime('%Y%m%d')}_to_{local_end.strftime('%Y%m%d')}.fits"
     os.makedirs(os.path.dirname(fits_filename), exist_ok=True)
-    print(f'Writing to {fits_filename}...')
+    display_filename = _display_path(fits_filename)
+    print(f'Writing to {display_filename}...')
     hdu.writeto(fits_filename, overwrite=True)
-    print(f"Written {len(fits_rows)} rows to {fits_filename}")
+    print(f"Written {len(fits_rows)} rows to {display_filename}")
     print(f"FITS columns: {[col.name for col in hdu.columns]}")
 
     return fits_filename

@@ -354,7 +354,6 @@ while t00 < obs_end:
     scatter = ax.scatter(sat_ra, sat_dec, marker='o', c = sat_dist, cmap = 'viridis')  
 
     plt.title(f'Starlink positions for {t00.astimezone(zone)}')
-    plt.grid()
     ax.xaxis.set_major_formatter(FuncFormatter(ra_formatter))
     ax.set_xlabel('RA (hh:mm:ss)')
     #fig.colorbar(scatter).set_label("Distance [km]")

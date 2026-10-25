@@ -43,6 +43,6 @@ for rc_frac in r_c_fractions:
 ax.set_xlabel("Scale Radius r_s (kpc)")
 ax.set_ylabel("Relative θ_E (arbitrary units)")
 ax.set_title("Impact of Core Radius on Einstein Radius vs. Scale Radius")
-ax.grid(True)
+ax.grid(False)
 ax.legend(title="Core fraction")
 plt.show()

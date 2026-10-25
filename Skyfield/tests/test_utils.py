@@ -42,19 +42,42 @@ class FakeTime:
         return self.value.astimezone(zone)
 
 
+def test_path_to_files_is_relative_to_module_checkout():
+    module_path = Path(__file__).parents[1] / 'src' / 'utils' / 'utils.py'
+    print(f'Reading from {module_path}...')
+    tree = ast.parse(module_path.read_text())
+    assignment = next(
+        node for node in tree.body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == 'pathToFiles' for target in node.targets)
+    )
+    namespace = {'Path': Path, '__file__': str(module_path)}
+
+    exec(compile(ast.Module(body=[assignment], type_ignores=[]), str(module_path), 'exec'), namespace)
+
+    assert Path(namespace['pathToFiles']) == module_path.resolve().parents[2] / 'files'
+
+
+def test_display_path_uses_repository_relative_names(utilities, tmp_path):
+    repository_output = Path(__file__).parents[1] / 'files' / 'twilight_windows' / 'example.npz'
+
+    assert utilities['_display_path'](repository_output) == 'Skyfield/files/twilight_windows/example.npz'
+    assert utilities['_display_path'](tmp_path / 'external-output.fits') == 'external-output.fits'
+
+
 @pytest.fixture
 def utilities():
     path = Path(__file__).parents[1] / 'src' / 'utils' / 'utils.py'
     print(f'Reading from {path}...')
     tree = ast.parse(path.read_text())
-    names = {'_find_closest_tle_path', 'find_closest_TLE', 'find_closest_TLE_lines', 'parse_tle_time', '_satellite_above_horizon', 'find_satellites_up', 'find_satellites_up_simple', 'get_satellite_count_info', '_sample_exposure_window', 'get_time_array', 'find_twilight_window_visit_overlaps', '_read_target_catalog_columns', 'get_targets_as_coordinates', 'get_targets_as_stars', 'read_targets_file', 'get_targets_by_visit_exposure', 'create_exposure_windows', '_read_exposure_catalog', 'get_exposure_windows', 'exposure_targets_to_stars', 'load_twilight_windows', 'save_twilight_windows_numpy'}
+    names = {'_display_path', '_find_closest_tle_path', 'find_closest_TLE', 'find_closest_TLE_lines', 'parse_tle_time', '_satellite_above_horizon', 'find_satellites_up', 'find_satellites_up_simple', 'get_satellite_count_info', '_sample_exposure_window', 'get_time_array', 'find_twilight_window_visit_overlaps', '_read_target_catalog_columns', 'get_targets_as_coordinates', 'get_targets_as_stars', 'read_targets_file', 'get_targets_by_visit_exposure', 'create_exposure_windows', '_read_exposure_catalog', 'get_exposure_windows', 'exposure_targets_to_stars', 'load_twilight_windows', 'save_twilight_windows_numpy'}
     definitions = [
         node for node in tree.body
         if (isinstance(node, ast.FunctionDef) and node.name in names)
-        or (isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == '_CHILE_TIMEZONE' for target in node.targets))
+        or (isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id in {'_CHILE_TIMEZONE', 'pathToFiles'} for target in node.targets))
     ]
     namespace = {
-        'dt': dt, 'os': os, 'np': np, 'Time': Time, 'u': units, 'timezone': timezone,
+        'dt': dt, 'os': os, 'np': np, 'Path': Path, '__file__': str(path), 'Time': Time, 'u': units, 'timezone': timezone,
         'fits': fits, 'Table': Table, 'Column': Column, 'SkyCoord': SkyCoord, 'pd': pd,
         'Angle': lambda **kwargs: SimpleNamespace(**kwargs),
         'Star': lambda right_ascension, declination: SimpleNamespace(ra=right_ascension, dec=declination),
@@ -984,7 +1007,8 @@ def test_twilight_archive_writer_and_loader_round_trip_schema_and_complete_windo
     windows = utilities['load_twilight_windows'](path, verbose=verbose)
 
     output = capsys.readouterr().out
-    assert f'Writing to {path}...' in output
+    assert f'Writing to {path.name}...' in output
+    assert f'Twilight data saved to {path.name}' in output
     assert f'Reading from {path}...' in output
     assert ('am twilight start at MJD' in output) == verbose
     assert windows == [[60000.2, 60000.25], [60000.75, 60000.8]]

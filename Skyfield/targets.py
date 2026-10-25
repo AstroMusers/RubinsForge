@@ -156,7 +156,6 @@ with fits.open('/grad/a.saricaoglu/lumos-sat/targetlist.fit') as hdul:
     legend1 = plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='w',markeredgecolor='r', markersize=10, label='WCS reference target')
     legend2 = plt.Line2D([0], [0], marker='*', color='w', markerfacecolor='b',markeredgecolor='k', markersize=10, label='Target')   
     ax.legend(handles=[legend1, legend2],  loc='lower center', bbox_to_anchor=(0.5, 1.1), ncol=3)
-    ax.coords.grid(color='black', alpha=0.5, linestyle='-')
     plt.tight_layout()
     plt.title('Strong Lens Candidate Distrubition')
     plt.savefig(directoryp +  "/" + c.strftime('%H%M') + "/Target_positions2" + ".png")

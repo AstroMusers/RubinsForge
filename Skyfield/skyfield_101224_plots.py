@@ -126,7 +126,6 @@ for i in range(0,days):
     scatter = ax.scatter(sat_ra[i], sat_dec[i], c = sat_dist[i], marker='.', cmap = 'viridis')  
 
     plt.title(f'Starlink positions for {t00.astimezone(zone)} in RA-Dec')
-    plt.grid()
 
     # Format the x-axis to show RA in hh:mm:ss format
     #ax.xaxis.set_major_formatter(FuncFormatter(ra_formatter))
@@ -155,7 +154,6 @@ for i in range(0,days):
     scatter = ax.scatter(sat_az[i], sat_alt[i], c = sat_height[i], marker='.', cmap = 'viridis')  
 
     plt.title(f'Starlink positions for {t00.astimezone(zone)} in Alt-Az')
-    plt.grid()
 
     ax.set_xlabel('Azimuth (degrees)')
     fig.colorbar(scatter).set_label("Distance [km]")
@@ -200,7 +198,6 @@ for i in range(0,days):
     scatter = ax.scatter(sat_ra[i], sat_dec[i], marker='o', c = sat_dist[i], cmap = 'viridis')  
 
     plt.title(f'Starlink positions for {t00.astimezone(zone)}')
-    plt.grid()
     ax.xaxis.set_major_formatter(FuncFormatter(ra_formatter))
     ax.set_xlabel('RA (hh:mm:ss)')
     fig.colorbar(scatter).set_label("Distance [km]")
@@ -237,7 +234,6 @@ for i in range(0,days):
     scatter = ax.scatter(sat_ra[i], sat_dec[i], marker='o', c = sat_dist[i], cmap = 'viridis')  
 
     plt.title(f'Starlink positions for {t00.astimezone(zone)}')
-    plt.grid()
     ax.xaxis.set_major_formatter(FuncFormatter(ra_formatter))
     ax.set_xlabel('RA (hh:mm:ss)')
     fig.colorbar(scatter).set_label("Distance [km]")
@@ -274,7 +270,6 @@ for i in range(0,days):
     scatter = ax.scatter(sat_az[i], sat_alt[i], marker='o', c = sat_height[i], cmap = 'viridis')  
 
     plt.title(f'Starlink positions for {t00.astimezone(zone)} in Alt-Az')
-    plt.grid()
 
     ax.set_xlabel('Azimuth (degrees)')
     fig.colorbar(scatter).set_label("Distance [km]")
@@ -318,7 +313,6 @@ for i in range(0,6):
     # sat_height_above = [height in sat_height_all for height, alt in zip(sat_height_all, sat_alt_all) if alt.degrees > 30]
 
     plt.title(f'target positions for {t00.astimezone(zone)}')
-    plt.grid()
     ax.xaxis.set_major_formatter(FuncFormatter(ra_formatter))
     ax.set_xlabel('RA (hh:mm:ss)')
 

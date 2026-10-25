@@ -113,7 +113,6 @@ ax = plt.subplot(111, projection='aitoff')
 # add systems
 plt.scatter(ra_i, dec_i, label='Candidate', )
 
-plt.grid(True, alpha=0.4)
 # plt.xlabel('Galactic Longitude')
 # plt.ylabel('Galactic Latitude')
 plt.title('Aitoff Projection no wrap', y=1.1)
@@ -128,7 +127,6 @@ ax = plt.subplot(111)
 # add systems
 plt.scatter(ra_i, dec_i, label='Candidate')
 
-plt.grid(True, alpha=0.4)
 # plt.xlabel('Galactic Longitude')
 # plt.ylabel('Galactic Latitude')
 plt.title('no Aitoff Projection no wrap', y=1.1)
@@ -145,7 +143,6 @@ ax = plt.subplot(111, projection='aitoff')
 # add systems
 plt.scatter(ra_rad_candidates, dec_rad_candidates, label='Candidate')
 
-plt.grid(True, alpha=0.4)
 # plt.xlabel('Galactic Longitude')
 # plt.ylabel('Galactic Latitude')
 plt.title('Aitoff Projection wrap', y=1.1)
@@ -160,7 +157,6 @@ ax = plt.subplot(111)
 # add systems
 plt.scatter(ra_rad_candidates, dec_rad_candidates, label='Candidate')
 
-plt.grid(True, alpha=0.4)
 # plt.xlabel('Galactic Longitude')
 # plt.ylabel('Galactic Latitude')
 plt.title('no Aitoff Projection wrap', y=1.1)

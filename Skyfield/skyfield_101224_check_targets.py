@@ -108,7 +108,6 @@ for i in range(0,8):
     # sat_height_above = [height in sat_height_all for height, alt in zip(sat_height_all, sat_alt_all) if alt.degrees > 30]
 
     plt.title(f'target positions for {t00.astimezone(zone)}')
-    plt.grid()
     ax.xaxis.set_major_formatter(FuncFormatter(ra_formatter))
     ax.set_xlabel('RA (hh:mm:ss)')
 
@@ -150,7 +149,6 @@ for i in range(0,8):
     # sat_height_above = [height in sat_height_all for height, alt in zip(sat_height_all, sat_alt_all) if alt.degrees > 30]
 
     plt.title(f'Target positions for {t00.astimezone(zone)} in Alt-Az')
-    plt.grid()
     ax.xaxis.set_major_formatter(FuncFormatter(ra_formatter))
     ax.set_xlabel('Az (degrees)')
 
@@ -203,7 +201,6 @@ for i in range(0,8):
     # sat_height_above = [height in sat_height_all for height, alt in zip(sat_height_all, sat_alt_all) if alt.degrees > 30]
 
     plt.title(f'Target positions for {t00.astimezone(zone)} in Ra-Dec')
-    plt.grid()
     ax.xaxis.set_major_formatter(FuncFormatter(ra_formatter))
     ax.set_xlabel('RA (hh:mm:ss)')
 

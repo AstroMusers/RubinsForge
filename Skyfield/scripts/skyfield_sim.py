@@ -154,7 +154,6 @@ while t00 < obs_end:
     plt.figure(figsize=(10, 5))
 
     ax = plt.subplot(111, projection='aitoff')
-    plt.grid(True)
 
     tar_plot= True
     sat_ra= []
